@@ -1,0 +1,32 @@
+name = "reelnexus-worker"
+main = "src/index.ts"
+compatibility_date = "2024-03-20"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "reelnexus_db"
+database_id = "cc481adb-aca6-4272-84b7-7e755229fb5a"
+migrations_dir = "migrations"
+
+[ai]
+binding = "AI"
+
+# Cron triggers for automation
+[triggers]
+crons = ["0 * * * *"] # Every hour
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = false
+head_sampling_rate = 1
+persist = true

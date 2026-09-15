@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Cloudflare & Build Output
+.wrangler/
+dist/
+build/
+out/
+.next/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Local Database & SQLite
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Python / Colab
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project Specific
+temp_references/

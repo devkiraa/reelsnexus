@@ -1,0 +1,202 @@
+import os
+import time
+import requests
+import subprocess
+import json
+import base64
+from datetime import datetime, timedelta, timezone
+
+# Google API clients
+try:
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+except ImportError:
+    subprocess.run(["pip", "install", "google-api-python-client", "google-auth-httplib2", "google-auth-oauthlib"])
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+
+API_BASE_URL = os.environ.get('API_BASE_URL', 'http://localhost:8787')
+COLAB_API_KEY = os.environ.get('COLAB_API_KEY', 'default_dev_key')
+
+def get_google_services(token_data):
+    """Initializes YouTube and Drive services with provided OAuth token data."""
+    creds = Credentials(
+        token=token_data.get("access_token"),
+        refresh_token=token_data.get("refresh_token"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=token_data.get("client_id"),
+        client_secret=token_data.get("client_secret"),
+        scopes=[
+            "https://www.googleapis.com/auth/youtube.upload",
+            "https://www.googleapis.com/auth/drive.file"
+        ]
+    )
+    
+    if not creds.valid:
+        if creds.expired and creds.refresh_token:
+            print("🔄 Access token expired, refreshing...")
+            creds.refresh(Request())
+            requests.post(f"{API_BASE_URL}/api/channels/{token_data['channel_id']}/token", 
+                          headers={'X-Colab-Key': COLAB_API_KEY}, 
+                          json={'access_token': creds.token, 'refresh_token': creds.refresh_token})
+        else:
+            raise RuntimeError("Invalid token and no refresh token available.")
+            
+    return (
+        build("youtube", "v3", credentials=creds),
+        build("drive", "v3", credentials=creds)
+    )
+
+def claim_job():
+    headers = {'X-Colab-Key': COLAB_API_KEY}
+    response = requests.post(f"{API_BASE_URL}/api/jobs/claim", headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    return None
+
+def complete_job(job_id, youtube_video_id=None, publish_utc=None, keyframe_base64=None, niche="general"):
+    headers = {'X-Colab-Key': COLAB_API_KEY}
+    payload = {
+        'job_id': job_id,
+        'youtube_video_id': youtube_video_id,
+        'youtube_scheduled_publish_utc': publish_utc,
+        'keyframe_base64': keyframe_base64,
+        'niche': niche,
+        'status': 'SCHEDULED' if youtube_video_id else 'READY_TO_POST'
+    }
+    requests.post(f"{API_BASE_URL}/api/jobs/complete", headers=headers, json=payload)
+
+def detect_video_encoder():
+    result = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], stdout=subprocess.PIPE, text=True)
+    if "h264_nvenc" in result.stdout:
+        return ["-c:v", "h264_nvenc", "-preset", "p6", "-tune", "hq", "-b:v", "5M"]
+    elif "h264_amf" in result.stdout:
+        return ["-c:v", "h264_amf", "-b:v", "5M"]
+    elif "h264_vaapi" in result.stdout:
+        return ["-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi", "-b:v", "5M"]
+    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "25"]
+
+def process_video(input_path, output_path):
+    print(f"Processing {input_path} with FFmpeg...")
+    encoder_args = detect_video_encoder()
+    vf_chain = "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920"
+    
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf_chain
+    ] + encoder_args + [output_path]
+    
+    subprocess.run(cmd, check=True)
+    
+    # Extract keyframe at exactly 1.5 seconds
+    frame_path = output_path.replace('.mp4', '_frame.jpg')
+    print(f"Extracting keyframe to {frame_path}...")
+    subprocess.run(["ffmpeg", "-y", "-ss", "00:00:01.500", "-i", output_path, "-vframes", "1", "-q:v", "2", frame_path])
+    
+    return output_path, frame_path
+
+def upload_to_drive(drive_service, file_path, folder_id, mime_type):
+    file_metadata = {
+        'name': os.path.basename(file_path),
+        'parents': [folder_id]
+    }
+    media = MediaFileUpload(file_path, mimetype=mime_type, resumable=True)
+    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    return file.get('id')
+
+def get_channel_schedule(channel_id):
+    headers = {'X-Colab-Key': COLAB_API_KEY}
+    resp = requests.get(f"{API_BASE_URL}/api/channels/{channel_id}/scheduled", headers=headers)
+    if resp.status_code == 200:
+        return resp.json()
+    return {"uploads_last_24h": 0, "latest_scheduled_utc": datetime.now(timezone.utc).isoformat()}
+
+def upload_to_youtube(youtube, video_path, metadata, schedule_data):
+    if schedule_data["uploads_last_24h"] >= 5:
+        print("⚠️ Quota limit reached (5 uploads per 24h). Delaying upload.")
+        return None, None
+
+    latest_dt = datetime.fromisoformat(schedule_data["latest_scheduled_utc"].replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    
+    # 4-hour spacing
+    target_dt = max(now + timedelta(hours=4), latest_dt + timedelta(hours=4))
+    publish_at_rfc3339 = target_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    print(f"⬆️ Uploading to YouTube. Scheduled for: {publish_at_rfc3339}")
+    body = {
+        "snippet": {
+            "title": metadata.get("ai_title", "Untitled Short") + " #Shorts",
+            "description": metadata.get("ai_description", ""),
+            "tags": metadata.get("ai_tags", "").split(","),
+            "categoryId": "22"
+        },
+        "status": {
+            "privacyStatus": "private", 
+            "publishAt": publish_at_rfc3339,
+            "selfDeclaredMadeForKids": False
+        }
+    }
+    
+    media = MediaFileUpload(video_path, chunksize=8*1024*1024, resumable=True)
+    request = youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=media
+    )
+    
+    response = None
+    while response is None:
+        status, response = request.next_chunk()
+        if status:
+            print(f"   ... {int(status.progress() * 100)}%")
+            
+    print(f"✅ YouTube Upload sukses. Video ID: {response['id']}")
+    return response['id'], publish_at_rfc3339
+
+def main_loop():
+    while True:
+        job = claim_job()
+        if job:
+            print(f"Claimed job: {job['id']}")
+            input_path = f"/tmp/{job['file_name']}"
+            with open(input_path, 'w') as f: f.write('dummy raw video')
+            output_path = f"/tmp/processed_{job['file_name']}"
+            
+            try:
+                out_vid, out_frame = process_video(input_path, output_path)
+                
+                with open(out_frame, "rb") as image_file:
+                    encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                
+                yt_video_id = None
+                publish_utc = None
+                
+                if job.get("youtube_token_data"):
+                    youtube, drive_service = get_google_services(job["youtube_token_data"])
+                    
+                    if job.get("target_drive_folder_id"):
+                        print("Uploading backup to Drive...")
+                        upload_to_drive(drive_service, out_vid, job["target_drive_folder_id"], 'video/mp4')
+                        upload_to_drive(drive_service, out_frame, job["target_drive_folder_id"], 'image/jpeg')
+                    
+                    # Ensure Quota protection
+                    schedule_data = get_channel_schedule(job["channel_id"])
+                    yt_video_id, publish_utc = upload_to_youtube(youtube, out_vid, job, schedule_data)
+                
+                complete_job(job['id'], youtube_video_id=yt_video_id, publish_utc=publish_utc, keyframe_base64=encoded_string, niche=job.get("channel_niche", "general"))
+                print(f"Completed job: {job['id']}")
+                
+            except Exception as e:
+                print(f"❌ Error processing job {job['id']}: {e}")
+        else:
+            print("No jobs found, sleeping for 30 seconds...")
+            time.sleep(30)
+
+if __name__ == "__main__":
+    print("Starting ReelNexus Colab Worker with Quota Protection & Backups...")
+    # main_loop()
