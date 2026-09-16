@@ -4,5 +4,11 @@
   "private": true,
   "workspaces": [
     "apps/*"
-  ]
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w worker\" \"npm run dev -w dashboard\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
 }

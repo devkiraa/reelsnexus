@@ -2,6 +2,7 @@ name = "reelnexus-worker"
 main = "src/index.ts"
 compatibility_date = "2024-03-20"
 compatibility_flags = ["nodejs_compat"]
+account_id = "ff223a90e4492d20d0c087e3a10cd2a7"
 
 # D1 Database binding
 [[d1_databases]]
@@ -26,7 +27,5 @@ head_sampling_rate = 1
 invocation_logs = true
 persist = true
 
-[observability.traces]
-enabled = false
-head_sampling_rate = 1
-persist = true
+[vars]
+FRONTEND_URL = "https://reelnexus-dashboard.pages.dev"

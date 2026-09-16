@@ -80,14 +80,49 @@ def detect_video_encoder():
         return ["-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi", "-b:v", "5M"]
     return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "25"]
 
-def process_video(input_path, output_path):
+def process_video(input_path, output_path, job_data):
     print(f"Processing {input_path} with FFmpeg...")
     encoder_args = detect_video_encoder()
-    vf_chain = "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920"
+    
+    channel_handle = job_data.get("channel_handle", "@Shorts")
+    watermark_text = job_data.get("watermark_text") or channel_handle
+    
+    # Extract typographical configurations
+    font_size = job_data.get("watermark_font_size", 36)
+    font_color = job_data.get("watermark_font_color", "#FFFFFF").lstrip('#')
+    opacity = job_data.get("watermark_opacity", 0.85)
+    font_family = job_data.get("watermark_font_family", "Inter")
+    w_padding = job_data.get("watermark_padding", 4)
+    # Note: border_radius is not natively supported by ffmpeg drawtext box; we rely on padding.
+
+    bg_enabled = job_data.get("watermark_bg_enabled", 0)
+    bg_color = job_data.get("watermark_bg_color", "#000000").lstrip('#')
+    bg_opacity = job_data.get("watermark_bg_opacity", 0.40)
+    
+    # Exact mathematical centering for x=0.5 and y=0.5, else absolute pixels mapped to 1080x1920
+    x_val = job_data.get("watermark_x", 0.065)
+    y_val = job_data.get("watermark_y", 0.145)
+    x_pos = "(w-text_w)/2" if abs(x_val - 0.5) < 0.01 else str(int(1080 * x_val))
+    y_pos = "(h-text_h)/2" if abs(y_val - 0.5) < 0.01 else str(int(1920 * y_val))
+
+    box_str = f"box=1:boxcolor=0x{bg_color}@{bg_opacity}:boxborderw={w_padding}" if bg_enabled else "box=0"
+    
+    # 1.02x speed shift (setpts=0.98*PTS)
+    # Micro-contrast (eq=contrast=1.05:brightness=-0.02)
+    vf_chain = (
+        "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,"
+        "setpts=0.98*PTS,"
+        "eq=contrast=1.05:brightness=-0.02,"
+        f"drawtext=text='{watermark_text}':font='{font_family}':fontcolor=0x{font_color}@{opacity}:fontsize={font_size}:x={x_pos}:y={y_pos}:{box_str}"
+    )
+    
+    # Audio speed shift to match 1.02x video
+    af_chain = "atempo=1.02"
     
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
-        "-vf", vf_chain
+        "-vf", vf_chain,
+        "-af", af_chain
     ] + encoder_args + [output_path]
     
     subprocess.run(cmd, check=True)
@@ -98,6 +133,30 @@ def process_video(input_path, output_path):
     subprocess.run(["ffmpeg", "-y", "-ss", "00:00:01.500", "-i", output_path, "-vframes", "1", "-q:v", "2", frame_path])
     
     return output_path, frame_path
+
+def get_or_create_drive_folder(drive_service, path_string):
+    # path_string example: "ReelNexus/exported_videos/TechShorts"
+    folders = path_string.split('/')
+    parent_id = 'root'
+    
+    for folder_name in folders:
+        if not folder_name: continue
+        query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed=false"
+        results = drive_service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+        files = results.get('files', [])
+        
+        if files:
+            parent_id = files[0].get('id')
+        else:
+            file_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [parent_id]
+            }
+            folder = drive_service.files().create(body=file_metadata, fields='id').execute()
+            parent_id = folder.get('id')
+            
+    return parent_id
 
 def upload_to_drive(drive_service, file_path, folder_id, mime_type):
     file_metadata = {
@@ -168,7 +227,7 @@ def main_loop():
             output_path = f"/tmp/processed_{job['file_name']}"
             
             try:
-                out_vid, out_frame = process_video(input_path, output_path)
+                out_vid, out_frame = process_video(input_path, output_path, job)
                 
                 with open(out_frame, "rb") as image_file:
                     encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
@@ -179,10 +238,13 @@ def main_loop():
                 if job.get("youtube_token_data"):
                     youtube, drive_service = get_google_services(job["youtube_token_data"])
                     
-                    if job.get("target_drive_folder_id"):
+                    target_path = job.get("target_drive_folder_path")
+                    if target_path:
+                        print(f"Creating/getting Drive structure: {target_path}")
+                        folder_id = get_or_create_drive_folder(drive_service, target_path)
                         print("Uploading backup to Drive...")
-                        upload_to_drive(drive_service, out_vid, job["target_drive_folder_id"], 'video/mp4')
-                        upload_to_drive(drive_service, out_frame, job["target_drive_folder_id"], 'image/jpeg')
+                        upload_to_drive(drive_service, out_vid, folder_id, 'video/mp4')
+                        upload_to_drive(drive_service, out_frame, folder_id, 'image/jpeg')
                     
                     # Ensure Quota protection
                     schedule_data = get_channel_schedule(job["channel_id"])
@@ -194,7 +256,7 @@ def main_loop():
             except Exception as e:
                 print(f"❌ Error processing job {job['id']}: {e}")
         else:
-            print("No jobs found, sleeping for 30 seconds...")
+            print("No jobs queued for render. Dispatch videos from the dashboard queue to begin. Sleeping 30s...")
             time.sleep(30)
 
 if __name__ == "__main__":

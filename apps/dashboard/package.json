@@ -10,9 +10,12 @@
     "deploy": "next build --webpack && wrangler pages deploy out --project-name=reelnexus-dashboard --branch master"
   },
   "dependencies": {
+    "lucide-react": "^1.46.0",
     "next": "16.3.5",
+    "next-themes": "^0.4.6",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-hot-toast": "^2.6.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

@@ -11,6 +11,7 @@ out/
 # Environment Variables
 .env
 .env.*
+.dev.vars
 !.env.example
 
 # Local Database & SQLite
