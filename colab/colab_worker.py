@@ -58,6 +58,19 @@ def claim_job():
         return response.json()
     return None
 
+def download_from_drive(drive_service, file_id, destination):
+    from googleapiclient.http import MediaIoBaseDownload
+    import io
+    print(f"Downloading source video {file_id} from Master Drive...")
+    request = drive_service.files().get_media(fileId=file_id)
+    with io.FileIO(destination, 'wb') as fh:
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+            if status:
+                print(f"Download Progress: {int(status.progress() * 100)}%")
+
 def complete_job(job_id, youtube_video_id=None, publish_utc=None, keyframe_base64=None, niche="general"):
     headers = {'X-Colab-Key': COLAB_API_KEY}
     payload = {
@@ -223,7 +236,14 @@ def main_loop():
         if job:
             print(f"Claimed job: {job['id']}")
             input_path = f"/tmp/{job['file_name']}"
-            with open(input_path, 'w') as f: f.write('dummy raw video')
+            
+            # Download actual video if we have credentials
+            if job.get("master_drive_token_data"):
+                _, master_drive = get_google_services(job["master_drive_token_data"])
+                download_from_drive(master_drive, job.get('source_file_id') or job.get('raw_drive_id'), input_path)
+            else:
+                with open(input_path, 'w') as f: f.write('dummy raw video')
+
             output_path = f"/tmp/processed_{job['file_name']}"
             
             try:
