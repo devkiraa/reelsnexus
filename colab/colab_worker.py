@@ -261,4 +261,4 @@ def main_loop():
 
 if __name__ == "__main__":
     print("Starting ReelNexus Colab Worker with Quota Protection & Backups...")
-    # main_loop()
+    main_loop()
