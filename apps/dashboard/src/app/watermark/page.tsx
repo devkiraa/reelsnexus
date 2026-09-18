@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useProject } from '../ProjectContext';
 import { Loader2, Type, Image as ImageIcon, Save, Video, MonitorPlay, MousePointer2, Play, Pause, Volume2, VolumeX, AlertTriangle, LayoutGrid } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getAuthHeaders } from '../AuthContext';
 
 const API_BASE = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:8787' 
@@ -77,7 +78,7 @@ export default function WatermarkStudioPage() {
     try {
       const res = await fetch(`${API_BASE}/api/channels/${activeChannel.id}/watermark`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           watermark_type: wType,
           watermark_text: wText,
@@ -180,31 +181,31 @@ export default function WatermarkStudioPage() {
   }
   
   return (
-    <div className="p-8 max-w-[1600px] mx-auto h-[calc(100vh-2rem)] flex flex-col">
-      <div className="flex justify-between items-end mb-6 shrink-0">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto min-h-[calc(100vh-2rem)] lg:h-[calc(100vh-2rem)] flex flex-col pb-24 lg:pb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 shrink-0">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-            <MonitorPlay className="w-8 h-8 mr-3 text-blue-600" />
-            Watermark Studio
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center">
+            <MonitorPlay className="w-7 h-7 sm:w-8 sm:h-8 mr-3 text-blue-600 shrink-0" />
+            <span>Watermark Studio</span>
           </h1>
-          <p className="text-gray-500 mt-2">Design and position your watermark for <strong className="text-gray-900">{activeChannel.channel_name}</strong> globally.</p>
+          <p className="text-gray-500 text-xs sm:text-sm mt-1 sm:mt-2">Design and position your watermark for <strong className="text-gray-900">{activeChannel.channel_name}</strong> globally.</p>
         </div>
         <button 
           onClick={handleSave}
           disabled={isSaving}
-          className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center transition-colors shadow-sm"
+          className="bg-blue-600 text-white px-5 sm:px-6 py-2 sm:py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center transition-colors shadow-xs shrink-0"
         >
-          {isSaving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />}
+          {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
           {isSaving ? 'Saving...' : 'Save to Channel'}
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 flex gap-8">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 lg:gap-8">
         
         {/* Left Pane: Controls */}
-        <div className="w-[450px] shrink-0 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-y-auto">
-          <div className="p-5 border-b border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900">Style Parameters</h2>
+        <div className="w-full lg:w-[420px] shrink-0 bg-white rounded-xl shadow-xs border border-gray-200 flex flex-col overflow-y-auto">
+          <div className="p-4 sm:p-5 border-b border-gray-200">
+            <h2 className="text-base sm:text-lg font-bold text-gray-900">Style Parameters</h2>
           </div>
           
           <div className="p-5 space-y-6">
@@ -393,12 +394,12 @@ export default function WatermarkStudioPage() {
         </div>
 
         {/* Right Pane: Interactive Canvas */}
-        <div className="flex-1 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden flex items-center justify-center p-8 flex-col relative">
+        <div className="flex-1 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden flex items-center justify-center p-4 sm:p-8 flex-col relative min-h-[480px]">
           
           {isUnsafe && (
-            <div className="absolute top-4 bg-amber-100 text-amber-800 text-sm font-bold px-4 py-2 rounded-full shadow-md flex items-center border border-amber-200 z-50">
-              <AlertTriangle className="w-4 h-4 mr-2" />
-              ⚠️ Watermark overlaps YouTube UI elements
+            <div className="absolute top-4 bg-amber-100 text-amber-800 text-xs sm:text-sm font-bold px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-md flex items-center border border-amber-200 z-50">
+              <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2 shrink-0" />
+              <span>Watermark overlaps YouTube UI safe zone</span>
             </div>
           )}
 
@@ -410,11 +411,10 @@ export default function WatermarkStudioPage() {
             onPointerLeave={handlePointerUp}
             onKeyDown={handleKeyDown}
             tabIndex={0}
-            className="relative bg-black shadow-2xl rounded-xl overflow-hidden cursor-crosshair ring-4 ring-gray-900/5 outline-none focus:ring-blue-500/30"
+            className="relative bg-black shadow-2xl rounded-xl overflow-hidden cursor-crosshair ring-4 ring-gray-900/5 outline-none focus:ring-blue-500/30 w-full max-w-[320px] sm:max-w-[360px]"
             style={{ 
               aspectRatio: '9/16', 
-              height: '100%',
-              maxHeight: '800px',
+              maxHeight: '760px',
               touchAction: 'none' // Prevent scrolling while dragging on touch devices
             }}
           >

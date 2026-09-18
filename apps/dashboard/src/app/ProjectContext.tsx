@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import toast from 'react-hot-toast';
+import { getAuthHeaders } from './AuthContext';
 
 const API_BASE = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:8787' 
@@ -163,7 +164,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch(`${API_BASE}/api/projects/import`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           id: channel.id,
           channel_name: channel.snippet.title,

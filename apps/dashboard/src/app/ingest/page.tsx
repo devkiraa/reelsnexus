@@ -5,6 +5,7 @@ import { useProject } from '../ProjectContext';
 import { Loader2, FolderSearch, HardDrive, CheckSquare, Square, AlertCircle, CheckCircle2, PlaySquare, Key, FolderOpen, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
+import { getAuthHeaders } from '../AuthContext';
 
 const API_BASE = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:8787' 
@@ -124,7 +125,7 @@ function IngestPageContent() {
     try {
       const res = await fetch(`${API_BASE}/api/ingest/scan`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ folder_url: folderUrl, channel_id: activeChannel.id })
       });
       
@@ -165,7 +166,7 @@ function IngestPageContent() {
       
       const res = await fetch(`${API_BASE}/api/ingest/enqueue`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           channel_id: activeChannel.id,
           source_type: scanResult.source_type,
@@ -195,20 +196,20 @@ function IngestPageContent() {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto relative">
-      <div className="mb-8 flex justify-between items-end">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto relative pb-32">
+      <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-            <HardDrive className="w-8 h-8 mr-3 text-blue-600" />
-            Ingest Raw Clips
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center">
+            <HardDrive className="w-7 h-7 sm:w-8 sm:h-8 mr-3 text-blue-600 shrink-0" />
+            <span>Ingest Raw Clips</span>
           </h1>
-          <p className="text-gray-500 mt-2">Scan a Google Drive or MEGA.nz folder to add raw clips to the <strong className="text-gray-900">{activeChannel.channel_name}</strong> pipeline.</p>
+          <p className="text-gray-500 text-xs sm:text-sm mt-1 sm:mt-2">Scan a Google Drive or MEGA.nz folder to add raw clips to the <strong className="text-gray-900">{activeChannel.channel_name}</strong> pipeline.</p>
         </div>
         
         {hasMasterDrive === false && (
           <a 
             href={`${API_BASE}/api/auth/drive/connect`}
-            className="flex items-center space-x-2 bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg text-sm font-medium hover:bg-yellow-200 transition-colors"
+            className="flex items-center space-x-2 bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg text-xs sm:text-sm font-medium hover:bg-yellow-200 transition-colors w-max"
           >
             <Key className="w-4 h-4" />
             <span>Connect Master Drive</span>
@@ -216,40 +217,40 @@ function IngestPageContent() {
         )}
       </div>
       
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-8">
-        <form onSubmit={handleScan} className="flex gap-4 items-start">
-          <div className="flex-1">
+      <div className="bg-white p-4 sm:p-6 rounded-xl shadow-xs border border-gray-200 mb-6 sm:mb-8">
+        <form onSubmit={handleScan} className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-start">
+          <div className="flex-1 min-w-0">
             <div className="relative">
               <input 
                 type="url" 
                 required 
                 value={folderUrl}
                 onChange={e => setFolderUrl(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-3 pr-32" 
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 text-xs sm:text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 sm:p-3 pr-24 sm:pr-28" 
                 placeholder="Paste Google Drive or MEGA.nz folder URL..." 
               />
               {hasMasterDrive && (
                 <button
                   type="button"
                   onClick={handleOpenBrowser}
-                  className="absolute right-2 top-2 bottom-2 bg-blue-100 text-blue-700 px-3 py-1 rounded-md text-sm font-medium hover:bg-blue-200 transition-colors flex items-center"
+                  className="absolute right-1.5 top-1.5 bottom-1.5 bg-blue-100 text-blue-700 px-2.5 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-medium hover:bg-blue-200 transition-colors flex items-center"
                 >
-                  <FolderOpen className="w-4 h-4 mr-1.5" />
-                  Browse
+                  <FolderOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1 sm:mr-1.5" />
+                  <span>Browse</span>
                 </button>
               )}
             </div>
             <p className="mt-2 text-xs text-gray-500 flex items-center">
-              <AlertCircle className="w-3 h-3 mr-1" />
-              For Google Drive, the folder must be accessible to your Master Drive account.
+              <AlertCircle className="w-3 h-3 mr-1 shrink-0" />
+              <span>For Google Drive, the folder must be accessible to your connected account.</span>
             </p>
           </div>
           <button 
             type="submit" 
             disabled={isScanning || !folderUrl}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 disabled:opacity-50 flex items-center transition-colors"
+            className="bg-blue-600 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-medium hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 disabled:opacity-50 flex items-center justify-center transition-colors shrink-0"
           >
-            {isScanning ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <FolderSearch className="w-5 h-5 mr-2" />}
+            {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FolderSearch className="w-4 h-4 mr-2" />}
             {isScanning ? 'Scanning...' : 'Scan Folder'}
           </button>
         </form>

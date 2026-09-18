@@ -18,12 +18,28 @@ export type Env = {
   FRONTEND_URL: string;
 };
 
-const app = new Hono<{ Bindings: Env }>();
+export type Variables = {
+  user?: any;
+};
+
+const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+const ALLOWED_ORIGINS = [
+  'https://reelnexus-dashboard.pages.dev',
+  'http://localhost:3000'
+];
 
 app.use('*', cors({
-  origin: '*',
+  origin: (origin) => {
+    if (!origin) return ALLOWED_ORIGINS[0];
+    if (ALLOWED_ORIGINS.includes(origin) || origin.endsWith('.reelnexus-dashboard.pages.dev')) {
+      return origin;
+    }
+    return ALLOWED_ORIGINS[0];
+  },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Colab-Key'],
+  credentials: true
 }));
 
 // --- Rate Limiting & DDoS Protection Middlewares ---
@@ -96,6 +112,52 @@ app.use('/api/*', async (c, next) => {
   await next();
 });
 
+// 3. Centralized Authentication Guard for Protected Endpoints
+const PUBLIC_PREFIXES = [
+  '/api/auth/',
+  '/api/jobs/claim',
+  '/api/jobs/complete',
+  '/api/drive/proxy-thumbnail',
+  '/api/drive/proxy-video'
+];
+
+app.use('/api/*', async (c, next) => {
+  if (c.req.method === 'OPTIONS') return next();
+
+  // Allow public endpoints
+  if (PUBLIC_PREFIXES.some(prefix => c.req.path.startsWith(prefix))) {
+    return next();
+  }
+
+  // Allow Colab Worker calls with valid API key
+  const colabKey = c.req.header('X-Colab-Key');
+  if (colabKey && colabKey === c.env.COLAB_API_KEY) {
+    return next();
+  }
+
+  // Enforce valid user session for all modifying routes (POST, PUT, DELETE, PATCH)
+  const isMutating = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(c.req.method);
+  const authHeader = c.req.header('Authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const jwtSecret = c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev';
+
+  if (isMutating) {
+    if (!token) {
+      return c.json({ error: 'UNAUTHORIZED', message: 'Authentication required for modifying actions.' }, 401);
+    }
+    const payload = await verifyJwt(token, jwtSecret);
+    if (!payload) {
+      return c.json({ error: 'INVALID_TOKEN', message: 'Session expired or invalid.' }, 401);
+    }
+    c.set('user', payload);
+  } else if (token) {
+    const payload = await verifyJwt(token, jwtSecret);
+    if (payload) c.set('user', payload);
+  }
+
+  await next();
+});
+
 app.get('/', (c) => c.json({ status: 'ok', service: 'ReelNexus Worker API is running!', docs: 'See /api endpoints.' }));
 
 // --- Helper Functions ---
@@ -149,29 +211,39 @@ Generate YouTube Shorts metadata formatted strictly as JSON with keys:
     }
   }
 
-  // 2. High-reliability Text LLM (Llama 3.1 8B Instruct)
+  // 2. High-reliability Text LLM (Llama 3.2 3B Instruct)
   try {
     const cleanFileName = fileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
-    const systemPrompt = `You are an elite YouTube Shorts SEO & viral content creator. Generate high-CTR titles and descriptions designed to maximize retention. Respond in pure JSON format only, with no commentary.`;
-    const userPrompt = `Create viral YouTube Shorts metadata for:
+    const systemPrompt = `You are an elite YouTube Shorts strategist crafting viral content specifically targeted at US audiences.
+Your goal is maximizing initial-velocity retention, viewed vs. swiped ratio, and completion rate.
+Write in natural, conversational American English. Avoid filler, buzzword clichés, or regional Indian phrasing.
+State the hook or high-stakes premise immediately in the first few words of the title.
+Respond strictly in valid JSON format with no additional text or Markdown wrapping.`;
+
+    const userPrompt = `Create US-targeted YouTube Shorts metadata for:
 - Video file: "${cleanFileName}"
 - Channel niche: "${niche}"
 - Trending terms: ${JSON.stringify(trendingKeywords)}
 
-Return JSON with exact keys:
+Formatting requirements:
+1. "title": Punchy, curiosity-driven title under 55 characters ending with #Shorts. Put the main promise or question first.
+2. "description": 2-3 clean, engaging sentences with natural SEO terms. No excessive hashtag walls.
+3. "tags": 5-8 relevant topic keywords and genuine spelling variations (e.g. ["shorts", "${niche.toLowerCase().replace(/[^a-z0-9]/g, '')}", "wealth", "mindset", "success"]).
+
+Return pure JSON:
 {
-  "title": "A viral, punchy title under 55 chars ending with #Shorts",
-  "description": "Engaging 2-3 sentence description using SEO terms to hook viewers.",
-  "tags": ["shorts", "tag1", "tag2", "tag3", "tag4", "tag5"]
+  "title": "Title here #Shorts",
+  "description": "Description here",
+  "tags": ["tag1", "tag2"]
 }`;
 
-    const aiRes: any = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+    const aiRes: any = await env.AI.run("@cf/meta/llama-3.2-3b-instruct", {
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ],
       max_tokens: 512,
-      temperature: 0.7
+      temperature: 0.75
     });
 
     const content = aiRes?.response || '';
@@ -180,25 +252,343 @@ Return JSON with exact keys:
       return JSON.parse(jsonMatch[0]);
     }
     return JSON.parse(content);
-  } catch (e) {
-    console.error('Llama 3.1 text metadata generation failed:', e);
-    // 3. Dynamic procedural fallback based on niche and filename
-    const cleanName = fileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
-    const formattedTitle = cleanName.length > 2 
-      ? cleanName.charAt(0).toUpperCase() + cleanName.slice(1)
-      : `${niche} Moment`;
+  } catch (e: any) {
+    console.error('Text metadata generation failed:', e);
+    // 3. Dynamic procedural fallback with unique viral hooks
+    const hooks = [
+      "Rule #1 Most People Ignore",
+      "The Reality of True Wealth",
+      "Would You Make This Choice?",
+      "The Mindset That Changes Everything",
+      "Is This The Ultimate Flex?",
+      "The Cost of Ambition",
+      "Secret That Changed My Life",
+      "Why 99% Fail at This",
+      "Watch Until The Very End",
+      "Never Make This Mistake",
+      "The Secret Nobody Tells You",
+      "Proof Anything Is Possible",
+      "Level Up Your Lifestyle Today"
+    ];
+    const randomHook = hooks[Math.floor(Math.random() * hooks.length)];
     return {
-      title: `${formattedTitle} 🔥 #Shorts`,
-      description: `Watch this unforgettable clip! Subscribe for more daily ${niche} Shorts and highlights.`,
-      tags: ["shorts", "viral", niche.toLowerCase().replace(/[^a-z0-9]/g, ''), "trending", "explore"]
+      title: `${randomHook} | ${niche} #Shorts`,
+      description: `Watch this unforgettable clip! Subscribe for more daily ${niche} Shorts, insights, and inspiration.\n\n#shorts #${niche.toLowerCase().replace(/[^a-z0-9]/g, '')} #viral #trending`,
+      tags: ["shorts", "viral", niche.toLowerCase().replace(/[^a-z0-9]/g, ''), "trending", "explore", "reels"]
     };
   }
 }
 
-// --- Auth & OAuth Endpoints ---
+// --- JWT & Auth Helpers (Web Crypto) ---
 
-app.post('/api/auth/login', async (c) => {
-  return c.json({ message: 'Login endpoint' });
+async function signJwt(payload: any, secret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const data = `${encodedHeader}.${encodedPayload}`;
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+  const signatureArray = Array.from(new Uint8Array(signature));
+  const signatureString = String.fromCharCode.apply(null, signatureArray);
+  const encodedSignature = btoa(signatureString).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+  return `${data}.${encodedSignature}`;
+}
+
+async function verifyJwt(token: string, secret: string): Promise<any | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const [encodedHeader, encodedPayload, encodedSignature] = parts;
+    const data = `${encodedHeader}.${encodedPayload}`;
+    const encoder = new TextEncoder();
+
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+
+    const sigBase64 = encodedSignature.replace(/-/g, '+').replace(/_/g, '/');
+    const sigBinary = atob(sigBase64);
+    const sigBytes = new Uint8Array(sigBinary.length);
+    for (let i = 0; i < sigBinary.length; i++) {
+      sigBytes[i] = sigBinary.charCodeAt(i);
+    }
+
+    const isValid = await crypto.subtle.verify('HMAC', key, sigBytes, encoder.encode(data));
+    if (!isValid) return null;
+
+    const payloadJson = atob(encodedPayload.replace(/-/g, '+').replace(/_/g, '/'));
+    const payload = JSON.parse(payloadJson);
+    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
+// --- Token Encryption at Rest (AES-256-GCM) ---
+
+async function getEncryptionKey(secretKey: string): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.digest('SHA-256', enc.encode(secretKey));
+  return crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-256-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function encryptSecret(plainText: string, secretKey: string): Promise<string> {
+  if (!plainText) return '';
+  const enc = new TextEncoder();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await getEncryptionKey(secretKey);
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-256-GCM', iv }, key, enc.encode(plainText));
+  
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decryptSecret(cipherTextB64: string, secretKey: string): Promise<string> {
+  if (!cipherTextB64) return '';
+  // Graceful fallback for legacy plaintext Google tokens (starting with '1//')
+  if (cipherTextB64.startsWith('1//')) {
+    return cipherTextB64;
+  }
+  try {
+    const raw = Uint8Array.from(atob(cipherTextB64), c => c.charCodeAt(0));
+    if (raw.length <= 12) return cipherTextB64;
+    const iv = raw.slice(0, 12);
+    const data = raw.slice(12);
+    const key = await getEncryptionKey(secretKey);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-256-GCM', iv }, key, data);
+    return new TextDecoder().decode(decrypted);
+  } catch (err) {
+    return cipherTextB64;
+  }
+}
+
+// --- Signed OAuth State Helpers (HMAC-SHA256) ---
+
+async function generateSecureState(payload: object, secret: string): Promise<string> {
+  const stateObj = { ...payload, nonce: crypto.randomUUID(), iat: Date.now() };
+  const jsonStr = JSON.stringify(stateObj);
+  const b64Data = btoa(jsonStr).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(b64Data));
+  const b64Sig = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  
+  return `${b64Data}.${b64Sig}`;
+}
+
+async function verifySecureState(stateToken: string, secret: string): Promise<any | null> {
+  try {
+    const parts = stateToken.split('.');
+    if (parts.length !== 2) return null;
+    const [b64Data, b64Sig] = parts;
+
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+    const sigBytes = Uint8Array.from(atob(b64Sig.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(b64Data));
+    if (!valid) return null;
+
+    const jsonStr = atob(b64Data.replace(/-/g, '+').replace(/_/g, '/'));
+    const parsed = JSON.parse(jsonStr);
+    
+    // Check 10-minute expiration
+    if (!parsed.iat || Date.now() - parsed.iat > 10 * 60 * 1000) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+// --- Google OAuth Access Token Helper ---
+
+async function getGoogleAccessToken(env: Env, encryptedRefreshToken: string): Promise<string | null> {
+  if (!encryptedRefreshToken) return null;
+  const secretKey = env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev';
+  const refreshToken = await decryptSecret(encryptedRefreshToken, secretKey);
+
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID || '',
+        client_secret: env.GOOGLE_CLIENT_SECRET || '',
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token'
+      }).toString()
+    });
+
+    if (!tokenRes.ok) {
+      console.error('Google token refresh failed:', await tokenRes.text());
+      return null;
+    }
+
+    const tokenData: any = await tokenRes.json();
+    return tokenData.access_token || null;
+  } catch (e) {
+    console.error('Google token refresh network exception:', e);
+    return null;
+  }
+}
+
+// --- Google Passwordless Auth Endpoints ---
+
+app.get('/api/auth/google/login', async (c) => {
+  if (!c.env.GOOGLE_CLIENT_ID || !c.env.GOOGLE_CLIENT_SECRET) {
+    return c.json({ error: "GCP_NOT_CONFIGURED", message: "Google Client ID/Secret missing." }, 400);
+  }
+
+  const redirectUri = new URL('/api/auth/google/callback', c.req.url).toString();
+  const returnTo = c.req.query('return_to') || '/';
+  
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id', c.env.GOOGLE_CLIENT_ID);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('scope', 'openid email profile');
+  authUrl.searchParams.set('prompt', 'select_account');
+  
+  const stateToken = await generateSecureState({ returnTo }, c.env.GOOGLE_CLIENT_SECRET);
+  authUrl.searchParams.set('state', stateToken);
+
+  return c.redirect(authUrl.toString());
+});
+
+app.get('/api/auth/google/callback', async (c) => {
+  const code = c.req.query('code');
+  const stateRaw = c.req.query('state') || '';
+  const error = c.req.query('error');
+  const frontendUrl = c.env.FRONTEND_URL || 'https://reelnexus-dashboard.pages.dev';
+
+  if (error || !code) {
+    return c.redirect(`${frontendUrl}/?error=google_login_cancelled`);
+  }
+
+  // Verify HMAC state
+  const stateData = await verifySecureState(stateRaw, c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev');
+  if (!stateData) {
+    return c.redirect(`${frontendUrl}/?error=invalid_csrf_state`);
+  }
+
+  // Strictly sanitize returnTo to prevent open redirects
+  let safeReturnTo = '/';
+  if (stateData.returnTo && typeof stateData.returnTo === 'string' && stateData.returnTo.startsWith('/') && !stateData.returnTo.startsWith('//')) {
+    safeReturnTo = stateData.returnTo;
+  }
+
+  const redirectUri = new URL('/api/auth/google/callback', c.req.url).toString();
+
+  try {
+    // 1. Exchange code for Google tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: c.env.GOOGLE_CLIENT_ID || '',
+        client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri
+      }).toString()
+    });
+
+    if (!tokenRes.ok) {
+      throw new Error(await tokenRes.text());
+    }
+
+    const tokenData: any = await tokenRes.json();
+
+    // 2. Fetch user profile from Google
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { 'Authorization': `Bearer ${tokenData.access_token}` }
+    });
+
+    if (!userRes.ok) {
+      throw new Error('Failed to fetch user profile');
+    }
+
+    const profile: any = await userRes.json();
+
+    // 3. Upsert into D1 users table
+    const existingUser = await c.env.DB.prepare(
+      `SELECT * FROM users WHERE email = ?`
+    ).bind(profile.email).first();
+
+    let userId = existingUser?.id as string || crypto.randomUUID();
+
+    if (existingUser) {
+      await c.env.DB.prepare(
+        `UPDATE users SET name = ?, avatar_url = ?, google_id = ? WHERE id = ?`
+      ).bind(profile.name, profile.picture, profile.id, userId).run();
+    } else {
+      await c.env.DB.prepare(
+        `INSERT INTO users (id, email, password_hash, name, avatar_url, google_id) 
+         VALUES (?, ?, 'GOOGLE_AUTH', ?, ?, ?)`
+      ).bind(userId, profile.email, profile.name, profile.picture, profile.id).run();
+    }
+
+    // 4. Sign JWT (30 days validity)
+    const jwtSecret = c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev';
+    const token = await signJwt({
+      sub: userId,
+      email: profile.email,
+      name: profile.name,
+      picture: profile.picture,
+      exp: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
+    }, jwtSecret);
+
+    const glue = safeReturnTo.includes('?') ? '&' : '?';
+    return c.redirect(`${frontendUrl}${safeReturnTo}${glue}auth_token=${token}`);
+  } catch (err) {
+    console.error('Google OAuth callback error:', err);
+    return c.redirect(`${frontendUrl}/?error=google_login_failed`);
+  }
+});
+
+app.get('/api/auth/me', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const token = authHeader.substring(7).trim();
+  const jwtSecret = c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev';
+  const payload = await verifyJwt(token, jwtSecret);
+
+  if (!payload) {
+    return c.json({ error: 'Invalid or expired session' }, 401);
+  }
+
+  const user = await c.env.DB.prepare(
+    `SELECT id, email, name, avatar_url, created_at FROM users WHERE id = ?`
+  ).bind(payload.sub).first();
+
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+
+  return c.json({ user });
 });
 
 app.get('/api/auth/youtube/connect', async (c) => {
@@ -210,11 +600,14 @@ app.get('/api/auth/youtube/connect', async (c) => {
   }
 
   const channelId = c.req.query('channel_id');
+  const returnTo = c.req.query('return_to') || '';
   if (!channelId) return c.json({ error: 'Missing channel_id' }, 400);
 
   const redirectUri = new URL('/api/auth/youtube/callback', c.req.url).toString();
+  // Principle of Least Privilege: upload Shorts and edit snippets/privacy only
   const scopes = [
     'https://www.googleapis.com/auth/youtube.upload',
+    'https://www.googleapis.com/auth/youtube.force-ssl',
     'https://www.googleapis.com/auth/youtube.readonly'
   ].join(' ');
 
@@ -225,7 +618,9 @@ app.get('/api/auth/youtube/connect', async (c) => {
   authUrl.searchParams.set('scope', scopes);
   authUrl.searchParams.set('access_type', 'offline');
   authUrl.searchParams.set('prompt', 'consent');
-  authUrl.searchParams.set('state', channelId);
+  
+  const stateToken = await generateSecureState({ channelId, returnTo }, c.env.GOOGLE_CLIENT_SECRET);
+  authUrl.searchParams.set('state', stateToken);
 
   return c.redirect(authUrl.toString());
 });
@@ -234,18 +629,29 @@ app.get('/api/auth/youtube/callback', async (c) => {
   if (!c.env.GOOGLE_CLIENT_ID || !c.env.GOOGLE_CLIENT_SECRET) {
     return c.json({
       error: "GCP_NOT_CONFIGURED",
-      message: "YouTube OAuth is not configured yet. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your worker secrets."
+      message: "YouTube OAuth is not configured yet."
     }, 400);
   }
 
   const code = c.req.query('code');
-  const channelId = c.req.query('state');
+  const stateRaw = c.req.query('state') || '';
   const error = c.req.query('error');
-
   const frontendUrl = c.env.FRONTEND_URL || 'https://reelnexus-dashboard.pages.dev';
 
-  if (error || !code || !channelId) {
+  if (error || !code) {
     return c.redirect(`${frontendUrl}/?error=oauth_failed`);
+  }
+
+  // Verify HMAC state
+  const stateData = await verifySecureState(stateRaw, c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev');
+  if (!stateData) {
+    return c.redirect(`${frontendUrl}/?error=invalid_csrf_state`);
+  }
+
+  const channelId = stateData.channelId || '';
+  let returnTo = '';
+  if (stateData.returnTo && typeof stateData.returnTo === 'string' && stateData.returnTo.startsWith('/') && !stateData.returnTo.startsWith('//')) {
+    returnTo = stateData.returnTo;
   }
 
   const redirectUri = new URL('/api/auth/youtube/callback', c.req.url).toString();
@@ -269,10 +675,44 @@ app.get('/api/auth/youtube/callback', async (c) => {
 
     const data: any = await tokenResponse.json();
     
-    return c.redirect(`${frontendUrl}/?success=true&access_token=${data.access_token}&refresh_token=${data.refresh_token}`);
+    // Encrypt and store channel's refresh token in D1
+    if (data.refresh_token) {
+      const encToken = await encryptSecret(data.refresh_token, c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev');
+      if (channelId) {
+        await c.env.DB.prepare(
+          `UPDATE channels SET youtube_refresh_token = ? WHERE id = ?`
+        ).bind(encToken, channelId).run();
+      }
+
+      // Also match by real YouTube API channel ID
+      try {
+        const chRes = await fetch('https://www.googleapis.com/youtube/v3/channels?part=id&mine=true', {
+          headers: { 'Authorization': `Bearer ${data.access_token}` }
+        });
+        if (chRes.ok) {
+          const chData: any = await chRes.json();
+          const realYtId = chData.items?.[0]?.id;
+          if (realYtId) {
+            await c.env.DB.prepare(
+              `UPDATE channels SET youtube_refresh_token = ? WHERE id = ?`
+            ).bind(encToken, realYtId).run();
+          }
+        }
+      } catch (e) {
+        console.error('Failed auto channel match:', e);
+      }
+    }
+
+    if (returnTo) {
+      const glue = returnTo.includes('?') ? '&' : '?';
+      return c.redirect(`${frontendUrl}${returnTo}${glue}youtube_reconnected=true`);
+    }
+
+    return c.redirect(`${frontendUrl}/settings?youtube_connected=true`);
   } catch (e) {
     console.error('OAuth token exchange failed:', e);
-    return c.redirect(`${frontendUrl}/?error=token_exchange_failed`);
+    const dest = returnTo ? `${frontendUrl}${returnTo}?error=token_exchange_failed` : `${frontendUrl}/?error=token_exchange_failed`;
+    return c.redirect(dest);
   }
 });
 
@@ -282,9 +722,7 @@ app.get('/api/auth/drive/connect', async (c) => {
   }
 
   const redirectUri = new URL('/api/auth/drive/callback', c.req.url).toString();
-  const scopes = [
-    'https://www.googleapis.com/auth/drive'
-  ].join(' ');
+  const scopes = ['https://www.googleapis.com/auth/drive.readonly'].join(' ');
 
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   authUrl.searchParams.set('client_id', c.env.GOOGLE_CLIENT_ID);
@@ -293,17 +731,26 @@ app.get('/api/auth/drive/connect', async (c) => {
   authUrl.searchParams.set('scope', scopes);
   authUrl.searchParams.set('access_type', 'offline');
   authUrl.searchParams.set('prompt', 'consent');
+  
+  const stateToken = await generateSecureState({ returnTo: '/ingest' }, c.env.GOOGLE_CLIENT_SECRET);
+  authUrl.searchParams.set('state', stateToken);
 
   return c.redirect(authUrl.toString());
 });
 
 app.get('/api/auth/drive/callback', async (c) => {
   const code = c.req.query('code');
+  const stateRaw = c.req.query('state') || '';
   const error = c.req.query('error');
   const frontendUrl = c.env.FRONTEND_URL || 'https://reelnexus-dashboard.pages.dev';
 
   if (error || !code) {
     return c.redirect(`${frontendUrl}/ingest?error=drive_oauth_failed`);
+  }
+
+  const stateData = await verifySecureState(stateRaw, c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev');
+  if (!stateData) {
+    return c.redirect(`${frontendUrl}/ingest?error=invalid_csrf_state`);
   }
 
   const redirectUri = new URL('/api/auth/drive/callback', c.req.url).toString();
@@ -325,10 +772,11 @@ app.get('/api/auth/drive/callback', async (c) => {
     const data: any = await tokenResponse.json();
     
     if (data.refresh_token) {
+      const encToken = await encryptSecret(data.refresh_token, c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev');
       await c.env.DB.prepare(
         `INSERT INTO global_settings (key, value) VALUES ('master_drive_refresh_token', ?) 
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-      ).bind(data.refresh_token).run();
+      ).bind(encToken).run();
     }
     
     return c.redirect(`${frontendUrl}/ingest?success=drive_connected`);
@@ -341,57 +789,48 @@ app.get('/api/auth/drive/callback', async (c) => {
 // --- Settings & Master Drive Endpoints ---
 
 app.get('/api/drive/proxy-thumbnail', async (c) => {
-  const url = c.req.query('url');
-  if (!url) return c.body(null, 400);
+  const fileId = c.req.query('fileId');
+  if (!fileId || !/^[a-zA-Z0-9_-]{10,100}$/.test(fileId)) {
+    return c.json({ error: 'INVALID_FILE_ID' }, 400);
+  }
   
   const setting = await c.env.DB.prepare(`SELECT value FROM global_settings WHERE key = 'master_drive_refresh_token'`).first();
   if (!setting || !setting.value) return c.body(null, 401);
 
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: c.env.GOOGLE_CLIENT_ID || '',
-      client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
-      refresh_token: setting.value as string,
-      grant_type: 'refresh_token'
-    }).toString()
-  });
-  const tokenData: any = await tokenResponse.json();
-  if (!tokenData.access_token) return c.body(null, 401);
+  const accessToken = await getGoogleAccessToken(c.env, setting.value as string);
+  if (!accessToken) return c.body(null, 401);
 
-  const imgRes = await fetch(url, { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+  // Strict domain enforcement: query Google Drive API directly
+  const imgRes = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
   return new Response(imgRes.body, {
-    headers: { 'Content-Type': imgRes.headers.get('Content-Type') || 'image/jpeg' }
+    headers: {
+      'Content-Type': imgRes.headers.get('Content-Type') || 'image/jpeg',
+      'Cache-Control': 'private, max-age=3600'
+    }
   });
 });
 
 app.get('/api/drive/proxy-video', async (c) => {
   const fileId = c.req.query('fileId');
-  if (!fileId) return c.body(null, 400);
+  if (!fileId || !/^[a-zA-Z0-9_-]{10,100}$/.test(fileId)) {
+    return c.body(null, 400);
+  }
   
   const setting = await c.env.DB.prepare(`SELECT value FROM global_settings WHERE key = 'master_drive_refresh_token'`).first();
   if (!setting || !setting.value) return c.body(null, 401);
 
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: c.env.GOOGLE_CLIENT_ID || '',
-      client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
-      refresh_token: setting.value as string,
-      grant_type: 'refresh_token'
-    }).toString()
-  });
-  const tokenData: any = await tokenResponse.json();
-  if (!tokenData.access_token) return c.body(null, 401);
+  const accessToken = await getGoogleAccessToken(c.env, setting.value as string);
+  if (!accessToken) return c.body(null, 401);
 
-  // We need to pass through Range headers for proper video seeking and playback
-  const headers: Record<string, string> = { Authorization: `Bearer ${tokenData.access_token}` };
+  // Pass through Range headers for video seeking and playback
+  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
   const range = c.req.header('Range');
   if (range) headers['Range'] = range;
 
-  const videoRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
+  const videoRes = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers });
   
   const responseHeaders = new Headers();
   responseHeaders.set('Content-Type', videoRes.headers.get('Content-Type') || 'video/mp4');
@@ -416,26 +855,20 @@ app.get('/api/settings', async (c) => {
 
 app.get('/api/drive/folders', async (c) => {
   const parentId = c.req.query('parentId') || 'root';
+  if (parentId !== 'root' && !/^[a-zA-Z0-9_-]{10,100}$/.test(parentId)) {
+    return c.json({ error: 'INVALID_PARENT_ID' }, 400);
+  }
   
   const setting = await c.env.DB.prepare(`SELECT value FROM global_settings WHERE key = 'master_drive_refresh_token'`).first();
   if (!setting || !setting.value) return c.json({ error: 'Master Drive not connected' }, 401);
 
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: c.env.GOOGLE_CLIENT_ID || '',
-      client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
-      refresh_token: setting.value as string,
-      grant_type: 'refresh_token'
-    }).toString()
-  });
-  const tokenData: any = await tokenResponse.json();
-  if (!tokenData.access_token) return c.json({ error: 'Failed to refresh Master Drive token' }, 401);
+  const accessToken = await getGoogleAccessToken(c.env, setting.value as string);
+  if (!accessToken) return c.json({ error: 'Failed to refresh Master Drive token' }, 401);
 
-  const q = `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const cleanParentId = parentId.replace(/['\\]/g, '');
+  const q = `'${cleanParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
   const driveRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name`, {
-    headers: { Authorization: `Bearer ${tokenData.access_token}` }
+    headers: { Authorization: `Bearer ${accessToken}` }
   });
   
   const driveData: any = await driveRes.json();
@@ -733,7 +1166,10 @@ app.get('/api/jobs', async (c) => {
   let countQuery = 'SELECT COUNT(*) as total FROM render_jobs WHERE channel_id = ?';
   const params: any[] = [channelId];
 
-  if (status !== 'ALL') {
+  if (status === 'ALL') {
+    query += " AND status != 'PUBLISHED'";
+    countQuery += " AND status != 'PUBLISHED'";
+  } else if (status !== 'EVERYTHING') {
     query += ' AND status = ?';
     countQuery += ' AND status = ?';
     params.push(status);
@@ -795,28 +1231,22 @@ app.post('/api/jobs/:id/publish-now', async (c) => {
   const channel = await c.env.DB.prepare(`SELECT youtube_refresh_token FROM channels WHERE id = ?`).bind(job.channel_id).first();
   if (!channel || !channel.youtube_refresh_token) return c.json({ error: 'Channel YouTube token missing' }, 400);
 
-  // Exchange refresh token for an access token
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: c.env.GOOGLE_CLIENT_ID || '',
-      client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
-      refresh_token: channel.youtube_refresh_token as string,
-      grant_type: 'refresh_token'
-    }).toString()
-  });
-  const tokenData: any = await tokenResponse.json();
-  if (!tokenData.access_token) return c.json({ error: 'Failed to refresh YouTube token' }, 401);
+  const accessToken = await getGoogleAccessToken(c.env, channel.youtube_refresh_token as string);
+  if (!accessToken) return c.json({ error: 'Failed to refresh YouTube token' }, 401);
 
   // Call YouTube API to update privacy status to public
+  const rawTags = job.ai_tags ? (typeof job.ai_tags === 'string' ? job.ai_tags.split(',') : (Array.isArray(job.ai_tags) ? job.ai_tags : [])) : [];
+  const cleanTags = rawTags.map((t: any) => String(t).trim()).filter(Boolean);
+
   const ytBody = {
     id: job.youtube_video_id,
     snippet: {
-      title: job.ai_title || "Untitled",
-      description: job.ai_description || "",
-      tags: job.ai_tags ? (job.ai_tags as string).split(',') : [],
-      categoryId: "22"
+      title: String(job.ai_title || "Untitled Shorts").slice(0, 100),
+      description: String(job.ai_description || ""),
+      tags: cleanTags,
+      categoryId: "22",
+      defaultLanguage: "en",
+      defaultAudioLanguage: "en"
     },
     status: {
       privacyStatus: 'public',
@@ -827,7 +1257,7 @@ app.post('/api/jobs/:id/publish-now', async (c) => {
   const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${tokenData.access_token}`,
+      'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(ytBody)
@@ -836,6 +1266,20 @@ app.post('/api/jobs/:id/publish-now', async (c) => {
   if (!ytRes.ok) {
     const err = await ytRes.text();
     console.error("YouTube Publish Now Failed", err);
+
+    const isScopeError = err.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || 
+                         err.includes('insufficientPermissions') || 
+                         err.includes('PERMISSION_DENIED');
+
+    if (isScopeError) {
+      return c.json({
+        error: 'YOUTUBE_REAUTH_REQUIRED',
+        message: 'YouTube account requires updated permissions to edit/publish videos. Please reconnect your YouTube channel.',
+        channel_id: job.channel_id,
+        details: err
+      }, 403);
+    }
+
     return c.json({ error: 'Failed to publish YouTube video', details: err }, 500);
   }
 
@@ -889,6 +1333,7 @@ app.post('/api/jobs/claim', async (c) => {
   const jobData: Record<string, any> = { 
     ...job, 
     youtube_token_data: null, 
+    master_drive_token_data: null,
     channel_niche: channel?.niche || 'entertainment', 
     channel_handle: channel?.channel_handle || `@${(channel?.channel_name as string || 'Shorts').replace(/\s+/g, '')}`,
     target_drive_folder_path: `ReelNexus/exported_videos/${(channel?.channel_name as string || 'General').replace(/[^a-zA-Z0-9-_]/g, '_')}`,
@@ -906,22 +1351,25 @@ app.post('/api/jobs/claim', async (c) => {
     watermark_padding: channel?.watermark_padding
   };
   
+  // Mint short-lived access tokens; NEVER expose client_secret or refresh_token to Colab
   if (channel && channel.youtube_refresh_token) {
-    jobData.youtube_token_data = {
-       refresh_token: channel.youtube_refresh_token,
-       client_id: c.env.GOOGLE_CLIENT_ID,
-       client_secret: c.env.GOOGLE_CLIENT_SECRET,
-       channel_id: channel.id
-    };
+    const ytAccessToken = await getGoogleAccessToken(c.env, channel.youtube_refresh_token as string);
+    if (ytAccessToken) {
+      jobData.youtube_token_data = {
+         access_token: ytAccessToken,
+         channel_id: channel.id
+      };
+    }
   }
 
   const masterDrive = await c.env.DB.prepare(`SELECT value FROM global_settings WHERE key = 'master_drive_refresh_token'`).first();
   if (masterDrive && masterDrive.value) {
-    jobData.master_drive_token_data = {
-       refresh_token: masterDrive.value as string,
-       client_id: c.env.GOOGLE_CLIENT_ID,
-       client_secret: c.env.GOOGLE_CLIENT_SECRET
-    };
+    const driveAccessToken = await getGoogleAccessToken(c.env, masterDrive.value as string);
+    if (driveAccessToken) {
+      jobData.master_drive_token_data = {
+         access_token: driveAccessToken
+      };
+    }
   }
 
   await c.env.DB.prepare(`UPDATE render_jobs SET status = 'PROCESSING' WHERE id = ?`).bind(job.id).run();
@@ -1031,24 +1479,62 @@ app.post('/api/jobs/:id/generate-metadata', async (c) => {
     success: true,
     ai_title: title,
     ai_description: description,
-    ai_tags: tags
+    ai_tags: tags,
+    error_debug: (meta as any).error_debug
   });
 });
 
+function isUSDaylightSaving(d: Date): boolean {
+  const month = d.getUTCMonth(); // 0-indexed: 2=March, 10=Nov
+  if (month > 2 && month < 10) return true;
+  if (month < 2 || month > 10) return false;
+  const day = d.getUTCDate();
+  if (month === 2) return day >= 8;
+  if (month === 10) return day < 7;
+  return true;
+}
+
 function getNextUSPeakSlot(latestScheduled: string | null): Date {
-  const peakHoursUTC = [2, 14, 18, 22]; // 10 PM EST, 10 AM EST, 2 PM EST, 6 PM EST
-  let baseDate = latestScheduled ? new Date(latestScheduled) : new Date();
-  
-  // Start searching from 1 hour after the base date to ensure spacing
-  baseDate = new Date(baseDate.getTime() + 60 * 60 * 1000);
-  
-  while (true) {
-    if (peakHoursUTC.includes(baseDate.getUTCHours()) && baseDate.getUTCMinutes() === 0) {
-      return baseDate;
+  const now = new Date();
+  let minStart = latestScheduled ? new Date(latestScheduled) : now;
+  // Space out each Short by at least 3 hours, and at least 30 minutes from now
+  minStart = new Date(Math.max(now.getTime() + 30 * 60 * 1000, minStart.getTime() + 3 * 60 * 60 * 1000));
+
+  for (let dayOffset = 0; dayOffset < 30; dayOffset++) {
+    const candidateDay = new Date(minStart.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const isDst = isUSDaylightSaving(candidateDay);
+
+    // Tested IST slots targeting high-viewership US timezones:
+    // 1. 10:30 PM IST (1:00 PM EDT / 10:00 AM PDT) -> 17:00 UTC
+    // 2. 12:30 AM IST (3:00 PM EDT / 12:00 PM PDT cross-coast peak) -> 19:00 UTC
+    // 3. 2:00 AM IST (4:30 PM EDT / 1:30 PM PDT) -> 20:30 UTC
+    // 4. 8:00 AM IST (10:30 PM EDT / 7:30 PM PDT West Coast evening) -> 02:30 UTC
+    const baseHourOffset = isDst ? 0 : 1;
+    const targetSlotsUTC = [
+      { h: (2 + baseHourOffset) % 24, m: 30 },
+      { h: (17 + baseHourOffset) % 24, m: 0 },
+      { h: (19 + baseHourOffset) % 24, m: 0 },
+      { h: (20 + baseHourOffset) % 24, m: 30 }
+    ].sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m));
+
+    for (const slot of targetSlotsUTC) {
+      const slotDate = new Date(Date.UTC(
+        candidateDay.getUTCFullYear(),
+        candidateDay.getUTCMonth(),
+        candidateDay.getUTCDate(),
+        slot.h,
+        slot.m,
+        0,
+        0
+      ));
+
+      if (slotDate.getTime() >= minStart.getTime()) {
+        return slotDate;
+      }
     }
-    // Increment by 1 hour
-    baseDate.setUTCHours(baseDate.getUTCHours() + 1, 0, 0, 0);
   }
+
+  return new Date(minStart.getTime() + 24 * 60 * 60 * 1000);
 }
 
 app.post('/api/jobs/:id/approve', async (c) => {
@@ -1061,19 +1547,8 @@ app.post('/api/jobs/:id/approve', async (c) => {
   const channel = await c.env.DB.prepare(`SELECT youtube_refresh_token FROM channels WHERE id = ?`).bind(job.channel_id).first();
   if (!channel || !channel.youtube_refresh_token) return c.json({ error: 'Channel YouTube token missing' }, 400);
 
-  // Exchange refresh token for an access token
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: c.env.GOOGLE_CLIENT_ID || '',
-      client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
-      refresh_token: channel.youtube_refresh_token as string,
-      grant_type: 'refresh_token'
-    }).toString()
-  });
-  const tokenData: any = await tokenResponse.json();
-  if (!tokenData.access_token) return c.json({ error: 'Failed to refresh YouTube token' }, 401);
+  const accessToken = await getGoogleAccessToken(c.env, channel.youtube_refresh_token as string);
+  if (!accessToken) return c.json({ error: 'Failed to refresh YouTube token' }, 401);
 
   const latestJob = await c.env.DB.prepare(
     `SELECT scheduled_slot FROM render_jobs 
@@ -1086,29 +1561,30 @@ app.post('/api/jobs/:id/approve', async (c) => {
   const publishNow = body.publish_now === true;
   const newStatus = publishNow ? 'PUBLISHED' : 'SCHEDULED';
   
-  // Call YouTube API to update privacy status and snippet
+  const rawTags = body.ai_tags ? (typeof body.ai_tags === 'string' ? body.ai_tags.split(',') : (Array.isArray(body.ai_tags) ? body.ai_tags : [])) : [];
+  const cleanTags = rawTags.map((t: any) => String(t).trim()).filter(Boolean);
+
+  // Call YouTube API to update privacy status, English language signals, and snippet
   const ytBody = {
     id: job.youtube_video_id,
     snippet: {
-      title: body.ai_title,
-      description: body.ai_description,
-      tags: body.ai_tags ? body.ai_tags.split(',') : [],
-      categoryId: "22"
+      title: String(body.ai_title || "Shorts Video").slice(0, 100),
+      description: body.ai_description ? String(body.ai_description) : "",
+      tags: cleanTags,
+      categoryId: "22",
+      defaultLanguage: "en",
+      defaultAudioLanguage: "en"
     },
     status: {
       privacyStatus: publishNow ? 'public' : 'private',
       selfDeclaredMadeForKids: false
     }
   };
-  
-  if (!publishNow) {
-    (ytBody.status as any).publishAt = futureSlot.toISOString();
-  }
 
   const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${tokenData.access_token}`,
+      'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(ytBody)
@@ -1117,6 +1593,20 @@ app.post('/api/jobs/:id/approve', async (c) => {
   if (!ytRes.ok) {
     const err = await ytRes.text();
     console.error("YouTube Update Failed", err);
+
+    const isScopeError = err.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || 
+                         err.includes('insufficientPermissions') || 
+                         err.includes('PERMISSION_DENIED');
+
+    if (isScopeError) {
+      return c.json({
+        error: 'YOUTUBE_REAUTH_REQUIRED',
+        message: 'YouTube account requires updated permissions to edit/publish videos. Please reconnect your YouTube channel.',
+        channel_id: job.channel_id,
+        details: err
+      }, 403);
+    }
+
     return c.json({ error: 'Failed to update YouTube video', details: err }, 500);
   }
 
@@ -1129,23 +1619,84 @@ app.post('/api/jobs/:id/approve', async (c) => {
       ai_title = ?, 
       ai_description = ?, 
       ai_tags = ? 
-    WHERE id = ? AND status = 'READY_FOR_REVIEW'`
+    WHERE id = ? AND status IN ('READY_FOR_REVIEW', 'SCHEDULED', 'IDLE', 'PENDING')`
   ).bind(
     newStatus,
     futureSlot.toISOString(), 
     body.ai_title, 
     body.ai_description, 
-    body.ai_tags, 
+    cleanTags.join(', '), 
     id
   ).run();
 
   if (result.meta.changes === 0) {
-    return c.json({ error: 'Job not found or not in READY_FOR_REVIEW state.' }, 400);
+    return c.json({ error: 'Job not found or invalid state.' }, 400);
   }
   
   return c.json({ success: true, status: newStatus, scheduled_slot: futureSlot.toISOString() });
 });
 
 export default {
-  fetch: app.fetch
+  fetch: app.fetch,
+  async scheduled(event: any, env: any, ctx: any) {
+    console.log("Running scheduled publishing cron...");
+    try {
+      // Find jobs whose scheduled_slot has passed and are still SCHEDULED
+      const dueJobs = await env.DB.prepare(
+        `SELECT r.*, c.youtube_refresh_token 
+         FROM render_jobs r
+         JOIN channels c ON r.channel_id = c.id
+         WHERE r.status = 'SCHEDULED' 
+           AND r.is_reviewed = 1
+           AND r.scheduled_slot IS NOT NULL
+           AND r.scheduled_slot <= datetime('now')
+           AND r.youtube_video_id IS NOT NULL`
+      ).all();
+
+      for (const job of (dueJobs.results || [])) {
+        if (!job.youtube_video_id || !job.youtube_refresh_token) continue;
+        try {
+          const accessToken = await getGoogleAccessToken(env, job.youtube_refresh_token);
+          if (!accessToken) continue;
+
+          const rawTags = job.ai_tags ? (typeof job.ai_tags === 'string' ? job.ai_tags.split(',') : (Array.isArray(job.ai_tags) ? job.ai_tags : [])) : [];
+          const cleanTags = rawTags.map((t: any) => String(t).trim()).filter(Boolean);
+
+          const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              id: job.youtube_video_id,
+              snippet: {
+                title: String(job.ai_title || "Shorts Video").slice(0, 100),
+                description: job.ai_description || "",
+                tags: cleanTags,
+                categoryId: "22",
+                defaultLanguage: "en",
+                defaultAudioLanguage: "en"
+              },
+              status: {
+                privacyStatus: 'public',
+                selfDeclaredMadeForKids: false
+              }
+            })
+          });
+
+          if (ytRes.ok) {
+            await env.DB.prepare(
+              `UPDATE render_jobs SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP WHERE id = ?`
+            ).bind(job.id).run();
+            console.log(`Cron successfully published scheduled job ${job.id}`);
+          }
+        } catch (jobErr) {
+          console.error(`Error publishing scheduled job ${job.id}:`, jobErr);
+        }
+      }
+    } catch (e) {
+      console.error("Scheduled cron failed:", e);
+    }
+  }
 };

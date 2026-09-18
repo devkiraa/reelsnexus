@@ -43,24 +43,23 @@ def ensure_fonts():
 
 def get_google_services(token_data):
     """Initializes YouTube and Drive services with provided OAuth token data."""
-    creds = Credentials(
-        token=token_data.get("access_token"),
-        refresh_token=token_data.get("refresh_token"),
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=token_data.get("client_id"),
-        client_secret=token_data.get("client_secret")
-    )
-    
-    if not creds.valid:
-        if (creds.expired or creds.token is None) and creds.refresh_token:
-            print("🔄 Access token expired or missing, refreshing...")
-            creds.refresh(Request())
-            if "channel_id" in token_data:
-                requests.post(f"{API_BASE_URL}/api/channels/{token_data['channel_id']}/token", 
-                              headers={'X-Colab-Key': COLAB_API_KEY}, 
-                              json={'access_token': creds.token, 'refresh_token': creds.refresh_token})
-        else:
-            raise RuntimeError("Invalid token and no refresh token available.")
+    access_token = token_data.get("access_token")
+    if access_token:
+        creds = Credentials(token=access_token)
+    else:
+        creds = Credentials(
+            token=None,
+            refresh_token=token_data.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=token_data.get("client_id"),
+            client_secret=token_data.get("client_secret")
+        )
+        if not creds.valid:
+            if creds.refresh_token:
+                print("🔄 Access token expired or missing, refreshing...")
+                creds.refresh(Request())
+            else:
+                raise RuntimeError("Invalid token and no credentials available.")
             
     return (
         build("youtube", "v3", credentials=creds),
@@ -270,15 +269,7 @@ def main_loop():
                 if job.get("youtube_token_data"):
                     youtube, _ = get_google_services(job["youtube_token_data"])
                     
-                    target_path = job.get("target_drive_folder_path")
-                    if target_path and job.get("master_drive_token_data"):
-                        print(f"Creating/getting Drive structure: {target_path}")
-                        folder_id = get_or_create_drive_folder(master_drive, target_path)
-                        print("Uploading backup to Drive...")
-                        upload_to_drive(master_drive, out_vid, folder_id, 'video/mp4')
-                        upload_to_drive(master_drive, out_frame, folder_id, 'image/jpeg')
-                    
-                    # Ensure Quota protection
+                    # Upload directly to YouTube as Unlisted for Review (skipping Drive upload)
                     schedule_data = get_channel_schedule(job["channel_id"])
                     yt_video_id, publish_utc = upload_to_youtube(youtube, out_vid, job, schedule_data)
                 

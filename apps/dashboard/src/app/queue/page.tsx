@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useProject } from '../ProjectContext';
 import { PlaySquare, Loader2, Clock, CheckCircle2, Sparkles, AlertTriangle, Trash2, Send, HardDrive, FileVideo, Calendar, ChevronLeft, ChevronRight, Search, ListFilter, Pause, Trash } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getAuthHeaders } from '../AuthContext';
 
 const API_BASE = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:8787' 
@@ -96,7 +97,7 @@ export default function QueuePage() {
     try {
       const res = await fetch(`${API_BASE}/api/jobs/batch-status`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ job_ids: Array.from(selectedIds), new_status })
       });
       const data = await res.json();
@@ -115,7 +116,7 @@ export default function QueuePage() {
     try {
       const res = await fetch(`${API_BASE}/api/jobs/batch-delete`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ job_ids: Array.from(selectedIds) })
       });
       const data = await res.json();
@@ -130,7 +131,10 @@ export default function QueuePage() {
 
   const handlePublishNow = async (jobId: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/jobs/${jobId}/publish-now`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/api/jobs/${jobId}/publish-now`, { 
+        method: 'POST',
+        headers: { ...getAuthHeaders() }
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       toast.success('Clip successfully published!');
@@ -155,7 +159,7 @@ export default function QueuePage() {
   }
 
   const TABS = [
-    { id: 'ALL', label: 'All Jobs' },
+    { id: 'ALL', label: 'Active Pipeline' },
     { id: 'IDLE', label: 'Idle / Staged' },
     { id: 'QUEUED_FOR_RENDER', label: 'Queued for Render' },
     { id: 'PROCESSING', label: 'Processing' },
@@ -182,22 +186,22 @@ export default function QueuePage() {
   const allVisibleSelected = jobs.length > 0 && visibleSelectedCount === jobs.length;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto pb-32">
-      <div className="flex justify-between items-end mb-8">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto pb-36">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Render Queue</h1>
-          <p className="text-gray-500 mt-2">Selectively dispatch and manage clips for <strong className="text-gray-900">{activeChannel.channel_name}</strong>.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Render Queue</h1>
+          <p className="text-gray-500 text-xs sm:text-sm mt-1 sm:mt-2">Selectively dispatch and manage clips for <strong className="text-gray-900">{activeChannel.channel_name}</strong>.</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto">
+      <div className="border-b border-gray-200 mb-6 overflow-x-auto scrollbar-none">
+        <nav className="-mb-px flex space-x-4 sm:space-x-8 min-w-max">
           {TABS.map(tab => (
             <button
               key={tab.id}
               onClick={() => { setStatusFilter(tab.id); setCurrentPage(1); setSelectedIds(new Set()); }}
-              className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center transition-colors
+              className={`whitespace-nowrap py-3 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm flex items-center transition-colors
                 ${statusFilter === tab.id 
                   ? 'border-blue-500 text-blue-600' 
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -205,7 +209,7 @@ export default function QueuePage() {
             >
               {tab.label}
               {statusFilter === tab.id && (
-                <span className="ml-2 py-0.5 px-2.5 rounded-full text-xs font-medium bg-blue-100 text-blue-600">
+                <span className="ml-1.5 sm:ml-2 py-0.5 px-2 rounded-full text-xs font-medium bg-blue-100 text-blue-600">
                   {totalJobs}
                 </span>
               )}
@@ -215,27 +219,27 @@ export default function QueuePage() {
       </div>
 
       {/* Filters & Sorting */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
-        <div className="relative w-full sm:w-96">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+        <div className="relative w-full sm:w-80 lg:w-96">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-5 w-5 text-gray-400" />
+            <Search className="h-4 w-4 text-gray-400" />
           </div>
           <input
             type="text"
             placeholder="Search by filename..."
             value={searchQuery}
             onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white shadow-sm"
+            className="block w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-xs sm:text-sm bg-white shadow-xs"
           />
         </div>
 
         <div className="flex items-center space-x-3 w-full sm:w-auto">
-          <div className="flex items-center space-x-2">
-            <ListFilter className="w-5 h-5 text-gray-400" />
+          <div className="flex items-center space-x-2 w-full sm:w-auto">
+            <ListFilter className="w-4 h-4 text-gray-400 shrink-0" />
             <select 
               value={sortBy} 
               onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
-              className="border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 py-2 pl-3 pr-8 shadow-sm bg-white"
+              className="w-full sm:w-auto border border-gray-300 rounded-lg text-xs sm:text-sm focus:ring-blue-500 focus:border-blue-500 py-2 pl-3 pr-8 shadow-xs bg-white"
             >
               <option value="name_asc">Filename (Low to High)</option>
               <option value="name_desc">Filename (High to Low)</option>
@@ -246,12 +250,12 @@ export default function QueuePage() {
       </div>
 
       {/* Quick Select Toolbar */}
-      <div className="flex items-center space-x-2 mb-4 bg-gray-50 p-2 rounded-lg border border-gray-200 shadow-sm overflow-x-auto">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-2">Quick Select:</span>
-        <button onClick={() => selectNext(5)} className="px-3 py-1.5 text-xs font-medium rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-sm transition-colors whitespace-nowrap">Next 5</button>
-        <button onClick={() => selectNext(10)} className="px-3 py-1.5 text-xs font-medium rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-sm transition-colors whitespace-nowrap">Next 10</button>
-        <button onClick={() => handleSelectAll({ target: { checked: true } } as any)} className="px-3 py-1.5 text-xs font-medium rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-sm transition-colors whitespace-nowrap">Select Visible</button>
-        <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1.5 text-xs font-medium rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-sm transition-colors whitespace-nowrap">Deselect All</button>
+      <div className="flex items-center space-x-2 mb-4 bg-gray-50 p-2 rounded-lg border border-gray-200 shadow-xs overflow-x-auto scrollbar-none">
+        <span className="text-[11px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider px-2 shrink-0">Quick Select:</span>
+        <button onClick={() => selectNext(5)} className="px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-xs transition-colors whitespace-nowrap shrink-0">Next 5</button>
+        <button onClick={() => selectNext(10)} className="px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-xs transition-colors whitespace-nowrap shrink-0">Next 10</button>
+        <button onClick={() => handleSelectAll({ target: { checked: true } } as any)} className="px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-xs transition-colors whitespace-nowrap shrink-0">Select Visible</button>
+        <button onClick={() => setSelectedIds(new Set())} className="px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-xs transition-colors whitespace-nowrap shrink-0">Deselect All</button>
       </div>
 
       {/* Table */}
@@ -266,35 +270,22 @@ export default function QueuePage() {
           <div className="p-16 text-center">
             <FileVideo className="w-12 h-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-1">No clips found</h3>
-            <p className="text-gray-500">There are no clips in this queue matching your current filters.</p>
+            <p className="text-gray-500 text-sm">There are no clips in this queue matching your current filters.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-4 text-left">
-                    <input 
-                      type="checkbox" 
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
-                      checked={allVisibleSelected}
-                      ref={input => { if (input) input.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < jobs.length; }}
-                      onChange={handleSelectAll}
-                    />
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Clip & Date</th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th scope="col" className="relative px-6 py-4"><span className="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {jobs.map(job => {
-                  const scheduleDate = new Date(job.scheduled_slot || job.scheduled_at || job.created_at);
-                  const isScheduled = !!(job.scheduled_slot || job.scheduled_at) && job.status === 'SCHEDULED';
-                  const isSelected = selectedIds.has(job.id);
-                  return (
-                  <tr key={job.id} className={`transition-colors ${isSelected ? 'bg-blue-50/50' : 'hover:bg-gray-50'}`}>
-                    <td className="px-6 py-4 whitespace-nowrap w-12">
+          <>
+            {/* Mobile Card List (screens < sm) */}
+            <div className="divide-y divide-gray-200 sm:hidden">
+              {jobs.map(job => {
+                const scheduleDate = new Date(job.scheduled_slot || job.scheduled_at || job.created_at);
+                const isScheduled = !!(job.scheduled_slot || job.scheduled_at) && job.status === 'SCHEDULED';
+                const isSelected = selectedIds.has(job.id);
+                return (
+                  <div 
+                    key={job.id} 
+                    className={`p-3.5 transition-colors ${isSelected ? 'bg-blue-50/60' : 'bg-white'}`}
+                  >
+                    <div className="flex items-start gap-3">
                       <input 
                         type="checkbox" 
                         checked={isSelected}
@@ -304,87 +295,211 @@ export default function QueuePage() {
                           else newSet.delete(job.id);
                           setSelectedIds(newSet);
                         }}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer mt-1 shrink-0"
                       />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className={`flex-shrink-0 w-12 h-14 rounded-lg flex flex-col items-center justify-center border ${isScheduled ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-500'} mr-4 shadow-sm`}>
-                          <span className="text-xs font-bold uppercase">{scheduleDate.toLocaleString('default', { month: 'short' })}</span>
-                          <span className="text-lg font-black leading-none my-0.5">{scheduleDate.getDate()}</span>
+                      <div className={`w-11 h-12 rounded-lg flex flex-col items-center justify-center border shrink-0 ${isScheduled ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
+                        <span className="text-[10px] font-bold uppercase leading-tight">{scheduleDate.toLocaleString('default', { month: 'short' })}</span>
+                        <span className="text-base font-black leading-none my-0.5">{scheduleDate.getDate()}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold text-gray-900 truncate">{job.file_name}</div>
+                        <div className="text-[11px] text-gray-500 mt-0.5 flex items-center">
+                          <Clock className="w-3 h-3 mr-1 shrink-0" />
+                          <span>{isScheduled ? 'Sched:' : 'Added:'} {scheduleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
-                        <div>
-                          <div className="text-sm font-bold text-gray-900">{job.file_name}</div>
-                          <div className="text-xs text-gray-500 mt-1 uppercase font-medium tracking-wider flex items-center">
-                            <Clock className="w-3.5 h-3.5 mr-1" />
-                            {isScheduled ? 'Scheduled:' : 'Added:'} {scheduleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (IST)
-                          </div>
+                        <div className="mt-2">
+                          {getStatusBadge(job.status)}
                         </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(job.status)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                    </div>
+
+                    {/* Mobile Action Buttons */}
+                    <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-end gap-2">
                       {job.status === 'READY_FOR_REVIEW' && (
                         <a 
                           href={`/review?job_id=${job.id}`} 
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-semibold rounded-md shadow-sm text-white bg-orange-600 hover:bg-orange-700 transition-colors"
+                          className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-md shadow-xs text-white bg-orange-600 hover:bg-orange-700"
                         >
                           Review & Schedule
                         </a>
                       )}
                       {job.status === 'SCHEDULED' && (
-                        <div className="flex space-x-2 justify-end">
+                        <>
                           <a 
                             href={`/review?job_id=${job.id}`} 
-                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-xs"
+                            className="inline-flex items-center px-2.5 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                           >
-                            Review Video
+                            Review
                           </a>
-                          <button onClick={() => handlePublishNow(job.id)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
-                            <Send className="w-3 h-3 mr-1.5" /> Publish Now
+                          <button onClick={() => handlePublishNow(job.id)} className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+                            <Send className="w-3 h-3 mr-1" /> Publish
                           </button>
-                        </div>
+                        </>
                       )}
                       {job.status === 'PUBLISHED' && (
-                        <a 
-                          href={`/review?job_id=${job.id}`} 
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-gray-700 bg-gray-100 hover:bg-gray-200"
-                        >
-                          View Details
-                        </a>
+                        <>
+                          <a 
+                            href={`/review?job_id=${job.id}`} 
+                            className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-md text-gray-700 bg-gray-100"
+                          >
+                            Details
+                          </a>
+                          {job.youtube_video_id && (
+                            <a
+                              href={`https://www.youtube.com/shorts/${job.youtube_video_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center px-2.5 py-1.5 border border-purple-200 text-xs font-semibold rounded-md text-purple-700 bg-purple-50"
+                            >
+                              Watch
+                            </a>
+                          )}
+                        </>
                       )}
                       {(job.status === 'IDLE' || job.status === 'FAILED') && (
                         <button onClick={() => {
                           setSelectedIds(new Set([job.id]));
                           handleBatchDelete();
-                        }} className="text-red-500 hover:text-red-700 inline-flex items-center p-2 rounded-md hover:bg-red-50 transition-colors">
+                        }} className="text-red-500 hover:text-red-700 inline-flex items-center p-1.5 rounded-md hover:bg-red-50">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
-                    </td>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop / Tablet Table View (screens >= sm) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-4 text-left">
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                        checked={allVisibleSelected}
+                        ref={input => { if (input) input.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < jobs.length; }}
+                        onChange={handleSelectAll}
+                      />
+                    </th>
+                    <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Clip & Date</th>
+                    <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th scope="col" className="relative px-6 py-4"><span className="sr-only">Actions</span></th>
                   </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {jobs.map(job => {
+                    const scheduleDate = new Date(job.scheduled_slot || job.scheduled_at || job.created_at);
+                    const isScheduled = !!(job.scheduled_slot || job.scheduled_at) && job.status === 'SCHEDULED';
+                    const isSelected = selectedIds.has(job.id);
+                    return (
+                    <tr key={job.id} className={`transition-colors ${isSelected ? 'bg-blue-50/50' : 'hover:bg-gray-50'}`}>
+                      <td className="px-6 py-4 whitespace-nowrap w-12">
+                        <input 
+                          type="checkbox" 
+                          checked={isSelected}
+                          onChange={(e) => {
+                            const newSet = new Set(selectedIds);
+                            if (e.target.checked) newSet.add(job.id);
+                            else newSet.delete(job.id);
+                            setSelectedIds(newSet);
+                          }}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className={`flex-shrink-0 w-12 h-14 rounded-lg flex flex-col items-center justify-center border ${isScheduled ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-500'} mr-4 shadow-sm`}>
+                            <span className="text-xs font-bold uppercase">{scheduleDate.toLocaleString('default', { month: 'short' })}</span>
+                            <span className="text-lg font-black leading-none my-0.5">{scheduleDate.getDate()}</span>
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-gray-900">{job.file_name}</div>
+                            <div className="text-xs text-gray-500 mt-1 uppercase font-medium tracking-wider flex items-center">
+                              <Clock className="w-3.5 h-3.5 mr-1" />
+                              {isScheduled ? 'Scheduled:' : 'Added:'} {scheduleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (IST)
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {getStatusBadge(job.status)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                        {job.status === 'READY_FOR_REVIEW' && (
+                          <a 
+                            href={`/review?job_id=${job.id}`} 
+                            className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-semibold rounded-md shadow-sm text-white bg-orange-600 hover:bg-orange-700 transition-colors"
+                          >
+                            Review & Schedule
+                          </a>
+                        )}
+                        {job.status === 'SCHEDULED' && (
+                          <div className="flex space-x-2 justify-end">
+                            <a 
+                              href={`/review?job_id=${job.id}`} 
+                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-xs"
+                            >
+                              Review Video
+                            </a>
+                            <button onClick={() => handlePublishNow(job.id)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+                              <Send className="w-3 h-3 mr-1.5" /> Publish Now
+                            </button>
+                          </div>
+                        )}
+                        {job.status === 'PUBLISHED' && (
+                          <div className="flex space-x-2 justify-end">
+                            <a 
+                              href={`/review?job_id=${job.id}`} 
+                              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-gray-700 bg-gray-100 hover:bg-gray-200"
+                            >
+                              View Details
+                            </a>
+                            {job.youtube_video_id && (
+                              <a
+                                href={`https://www.youtube.com/shorts/${job.youtube_video_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center px-3 py-1.5 border border-purple-200 text-xs font-semibold rounded-md shadow-sm text-purple-700 bg-purple-50 hover:bg-purple-100"
+                              >
+                                Watch Shorts
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {(job.status === 'IDLE' || job.status === 'FAILED') && (
+                          <button onClick={() => {
+                            setSelectedIds(new Set([job.id]));
+                            handleBatchDelete();
+                          }} className="text-red-500 hover:text-red-700 inline-flex items-center p-2 rounded-md hover:bg-red-50 transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )})}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
         
         {/* Pagination Footer */}
         {jobs.length > 0 && (
-          <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 sm:px-6 flex items-center justify-between">
-            <div className="flex items-center text-sm text-gray-700">
-              <span className="mr-3">Rows per page:</span>
-              <select value={limit} onChange={e => { setLimit(Number(e.target.value)); setCurrentPage(1); }} className="border-gray-300 rounded text-sm bg-white py-1 pl-2 pr-6 shadow-sm focus:ring-blue-500 focus:border-blue-500">
+          <div className="bg-gray-50 px-3 sm:px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center text-xs sm:text-sm text-gray-700 justify-between w-full sm:w-auto">
+              <span className="mr-2 sm:mr-3">Rows per page:</span>
+              <select value={limit} onChange={e => { setLimit(Number(e.target.value)); setCurrentPage(1); }} className="border-gray-300 rounded text-xs sm:text-sm bg-white py-1 pl-2 pr-6 shadow-xs focus:ring-blue-500 focus:border-blue-500">
                 <option value={25}>25</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
             </div>
             
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-end space-x-6">
-              <p className="text-sm text-gray-700">
+            <div className="flex items-center justify-between sm:justify-end space-x-4 sm:space-x-6 w-full sm:w-auto">
+              <p className="text-xs sm:text-sm text-gray-700">
                 <span className="font-medium">{(currentPage - 1) * limit + 1}</span>-
                 <span className="font-medium">{Math.min(currentPage * limit, totalJobs)}</span> of <span className="font-medium">{totalJobs}</span>
               </p>
@@ -392,16 +507,16 @@ export default function QueuePage() {
                 <button 
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage(p => p - 1)}
-                  className="p-1.5 rounded bg-white border border-gray-300 disabled:opacity-50 hover:bg-gray-50 shadow-sm transition-colors text-gray-600"
+                  className="p-1.5 rounded bg-white border border-gray-300 disabled:opacity-50 hover:bg-gray-50 shadow-xs transition-colors text-gray-600"
                 >
-                  <ChevronLeft className="w-5 h-5" />
+                  <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
                 <button 
                   disabled={currentPage === totalPages}
                   onClick={() => setCurrentPage(p => p + 1)}
-                  className="p-1.5 rounded bg-white border border-gray-300 disabled:opacity-50 hover:bg-gray-50 shadow-sm transition-colors text-gray-600"
+                  className="p-1.5 rounded bg-white border border-gray-300 disabled:opacity-50 hover:bg-gray-50 shadow-xs transition-colors text-gray-600"
                 >
-                  <ChevronRight className="w-5 h-5" />
+                  <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               </div>
             </div>
@@ -411,31 +526,31 @@ export default function QueuePage() {
 
       {/* Floating Batch Action Toolbar */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-gray-900 rounded-full shadow-2xl px-6 py-4 flex items-center space-x-6 z-50 border border-gray-700 animate-in slide-in-from-bottom-8">
+        <div className="fixed bottom-6 sm:bottom-8 left-4 right-4 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 bg-gray-900 rounded-2xl sm:rounded-full shadow-2xl px-4 sm:px-6 py-3 sm:py-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 z-50 border border-gray-700 animate-in slide-in-from-bottom-6 max-w-lg mx-auto sm:mx-0">
           <div className="flex items-center space-x-2 text-white">
             <span className="bg-blue-600 text-xs font-bold px-2 py-0.5 rounded-full">{selectedIds.size}</span>
-            <span className="text-sm font-medium">clips selected</span>
+            <span className="text-xs sm:text-sm font-medium">selected</span>
           </div>
-          <div className="w-px h-6 bg-gray-700"></div>
-          <div className="flex space-x-3">
+          <div className="hidden sm:block w-px h-6 bg-gray-700"></div>
+          <div className="flex items-center space-x-2 sm:space-x-3">
             <button 
               onClick={() => handleBatchStatus('QUEUED_FOR_RENDER')}
-              className="flex items-center text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-full transition-colors shadow-lg"
+              className="flex items-center text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 px-3 sm:px-4 py-2 rounded-full transition-colors shadow-lg"
             >
-              <Sparkles className="w-4 h-4 mr-2" /> Send to Processing
+              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" /> Process
             </button>
             <button 
               onClick={() => handleBatchStatus('IDLE')}
-              className="flex items-center text-sm font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-600 px-4 py-2 rounded-full transition-colors"
+              className="flex items-center text-xs sm:text-sm font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 border border-gray-600 px-3 sm:px-4 py-2 rounded-full transition-colors"
             >
-              <Pause className="w-4 h-4 mr-2" /> Hold / Set Idle
+              <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" /> Hold
             </button>
             <button 
               onClick={handleBatchDelete}
-              className="flex items-center justify-center text-red-400 hover:text-red-300 bg-gray-800 hover:bg-gray-700 border border-gray-600 w-10 h-10 rounded-full transition-colors"
+              className="flex items-center justify-center text-red-400 hover:text-red-300 bg-gray-800 hover:bg-gray-700 border border-gray-600 w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-colors shrink-0"
               title="Delete Selected"
             >
-              <Trash className="w-4 h-4" />
+              <Trash className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
         </div>
@@ -443,23 +558,23 @@ export default function QueuePage() {
 
       {/* Review & Approve Modal */}
       {modalJob && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/70 p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-              <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                <AlertTriangle className="w-5 h-5 text-orange-500 mr-2" />
-                Review Video & Metadata
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/70 p-2 sm:p-4 md:p-6 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <h2 className="text-base sm:text-xl font-bold text-gray-900 flex items-center truncate">
+                <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500 mr-2 shrink-0" />
+                <span className="truncate">Review Video & Metadata</span>
               </h2>
-              <button onClick={() => setModalJob(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              <button onClick={() => setModalJob(null)} className="text-gray-400 hover:text-gray-600 p-1 transition-colors">
+                <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             
-            <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+            <div className="flex flex-col md:flex-row flex-1 overflow-y-auto md:overflow-hidden min-h-0">
               {/* Left Column: Preview */}
-              <div className="w-full md:w-5/12 bg-gray-900 flex flex-col justify-center items-center p-6 relative">
+              <div className="w-full md:w-5/12 bg-gray-900 flex flex-col justify-center items-center p-4 sm:p-6 relative shrink-0">
                 {modalJob.youtube_video_id ? (
-                  <div className="w-full aspect-[9/16] max-h-full max-w-[320px] bg-black rounded-xl overflow-hidden shadow-2xl relative ring-1 ring-gray-700">
+                  <div className="w-full aspect-[9/16] max-h-[380px] md:max-h-full max-w-[260px] sm:max-w-[300px] bg-black rounded-xl overflow-hidden shadow-2xl relative ring-1 ring-gray-700">
                     <iframe 
                       src={`https://www.youtube.com/embed/${modalJob.youtube_video_id}?autoplay=1&controls=1&mute=0&loop=1&playlist=${modalJob.youtube_video_id}`}
                       className="absolute inset-0 w-full h-full border-0"
@@ -468,68 +583,68 @@ export default function QueuePage() {
                     ></iframe>
                   </div>
                 ) : (
-                  <div className="text-center text-gray-400 p-8">
-                    <FileVideo className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                    <p>No preview available for this clip.</p>
+                  <div className="text-center text-gray-400 p-6 sm:p-8">
+                    <FileVideo className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 opacity-50" />
+                    <p className="text-xs sm:text-sm">No preview available for this clip.</p>
                   </div>
                 )}
                 
-                <div className="mt-6 flex items-center space-x-2 text-sm text-gray-300 bg-gray-800/80 px-4 py-2 rounded-lg">
+                <div className="mt-4 sm:mt-6 flex items-center space-x-2 text-xs sm:text-sm text-gray-300 bg-gray-800/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg">
                   <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
                   <span>Unlisted on YouTube</span>
                 </div>
               </div>
 
               {/* Right Column: Metadata Form */}
-              <div className="w-full md:w-7/12 p-8 overflow-y-auto bg-white">
-                <div className="space-y-6">
+              <div className="w-full md:w-7/12 p-5 sm:p-8 overflow-y-auto bg-white">
+                <div className="space-y-4 sm:space-y-6">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-900 mb-1.5">YouTube Title</label>
+                    <label className="block text-xs sm:text-sm font-semibold text-gray-900 mb-1.5">YouTube Title</label>
                     <input 
                       type="text" 
                       value={modalJob.ai_title || ''}
                       onChange={e => setModalJob({ ...modalJob, ai_title: e.target.value })}
-                      className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm py-2.5 px-3"
+                      className="w-full border-gray-300 rounded-lg shadow-xs focus:ring-blue-500 focus:border-blue-500 text-xs sm:text-sm py-2 px-3"
                     />
-                    <p className="mt-1 text-xs text-gray-500">Keep it punchy. Hashtags in title boost Shorts visibility.</p>
+                    <p className="mt-1 text-[11px] sm:text-xs text-gray-500">Keep it punchy. Hashtags in title boost Shorts visibility.</p>
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-semibold text-gray-900 mb-1.5">Description (with DMCA footer)</label>
+                    <label className="block text-xs sm:text-sm font-semibold text-gray-900 mb-1.5">Description (with DMCA footer)</label>
                     <textarea 
-                      rows={6}
+                      rows={5}
                       value={modalJob.ai_description || ''}
                       onChange={e => setModalJob({ ...modalJob, ai_description: e.target.value })}
-                      className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm py-2.5 px-3"
+                      className="w-full border-gray-300 rounded-lg shadow-xs focus:ring-blue-500 focus:border-blue-500 text-xs sm:text-sm py-2 px-3"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-semibold text-gray-900 mb-1.5">Tags (comma separated)</label>
+                    <label className="block text-xs sm:text-sm font-semibold text-gray-900 mb-1.5">Tags (comma separated)</label>
                     <input 
                       type="text" 
                       value={modalJob.ai_tags || ''}
                       onChange={e => setModalJob({ ...modalJob, ai_tags: e.target.value })}
-                      className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm py-2.5 px-3"
+                      className="w-full border-gray-300 rounded-lg shadow-xs focus:ring-blue-500 focus:border-blue-500 text-xs sm:text-sm py-2 px-3"
                     />
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between mt-auto">
-              <div>
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mt-auto">
+              <div className="text-xs sm:text-sm">
                 {modalJob.status === 'SCHEDULED' && (
-                  <span className="text-sm font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">Currently Scheduled to post at {new Date(modalJob.scheduled_at || '').toLocaleString()}</span>
+                  <span className="font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 inline-block">Scheduled: {new Date(modalJob.scheduled_at || '').toLocaleDateString()}</span>
                 )}
                 {modalJob.status === 'PUBLISHED' && (
-                  <span className="text-sm font-medium text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100">Published on {new Date(modalJob.published_at || '').toLocaleString()}</span>
+                  <span className="font-medium text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100 inline-block">Published: {new Date(modalJob.published_at || '').toLocaleDateString()}</span>
                 )}
               </div>
-              <div className="flex space-x-3">
+              <div className="flex flex-wrap sm:flex-nowrap gap-2 sm:space-x-3 justify-end">
                 <button 
                   onClick={() => setModalJob(null)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-sm"
+                  className="px-3.5 py-2 text-xs sm:text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-xs"
                 >
                   Cancel
                 </button>
@@ -540,7 +655,7 @@ export default function QueuePage() {
                         try {
                           const res = await fetch(`${API_BASE}/api/jobs/${modalJob.id}/approve`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                             body: JSON.stringify({ ...modalJob, publish_now: false })
                           });
                           const data = await res.json();
@@ -552,9 +667,9 @@ export default function QueuePage() {
                           toast.error(e.message);
                         }
                       }}
-                      className="px-5 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm flex items-center"
+                      className="px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-xs flex items-center justify-center"
                     >
-                      <Calendar className="w-4 h-4 mr-2" />
+                      <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
                       Approve & Schedule
                     </button>
                     <button 
@@ -562,7 +677,7 @@ export default function QueuePage() {
                         try {
                           const res = await fetch(`${API_BASE}/api/jobs/${modalJob.id}/approve`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                             body: JSON.stringify({ ...modalJob, publish_now: true })
                           });
                           const data = await res.json();
@@ -574,9 +689,9 @@ export default function QueuePage() {
                           toast.error(e.message);
                         }
                       }}
-                      className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm flex items-center"
+                      className="px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs flex items-center justify-center"
                     >
-                      <Send className="w-4 h-4 mr-2" />
+                      <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
                       Publish Publicly Now
                     </button>
                   </>

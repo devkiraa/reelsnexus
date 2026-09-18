@@ -8,6 +8,7 @@ import {
   Sparkles, Check, ChevronRight, FileVideo
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getAuthHeaders } from '../AuthContext';
 
 const API_BASE = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:8787' 
@@ -20,8 +21,10 @@ export default function ReviewPage() {
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'READY_FOR_REVIEW' | 'SCHEDULED'>('READY_FOR_REVIEW');
+  const [activeTab, setActiveTab] = useState<'READY_FOR_REVIEW' | 'SCHEDULED' | 'PUBLISHED'>('READY_FOR_REVIEW');
   const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
+
+  const [reauthNeeded, setReauthNeeded] = useState(false);
 
   // Metadata form state
   const [aiTitle, setAiTitle] = useState('');
@@ -67,25 +70,19 @@ export default function ReviewPage() {
     setIsGeneratingMetadata(true);
     try {
       const res = await fetch(`${API_BASE}/api/jobs/${jobId}/generate-metadata`, {
-        method: 'POST'
+        method: 'POST',
+        headers: getAuthHeaders()
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to generate metadata');
+      if (!res.ok) throw new Error(data.error || 'Failed to generate AI metadata');
 
-      setAiTitle(data.ai_title || '');
-      setAiDescription(data.ai_description || '');
-      setAiTags(data.ai_tags || '');
-
-      // Update in local job list
-      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ai_title: data.ai_title, ai_description: data.ai_description, ai_tags: data.ai_tags } : j));
-      if (selectedJob && selectedJob.id === jobId) {
-        setSelectedJob((prev: any) => ({ ...prev, ai_title: data.ai_title, ai_description: data.ai_description, ai_tags: data.ai_tags }));
-      }
-
-      toast.success('AI title & description generated!');
-    } catch (err: any) {
-      console.error('AI generation error:', err);
-      toast.error(err.message || 'AI generation failed');
+      setAiTitle(data.title || '');
+      setAiDescription(data.description || '');
+      setAiTags(data.tags || '');
+      toast.success('Generated viral title & description!');
+    } catch (e: any) {
+      console.error(e);
+      toast.error('AI generation failed: ' + e.message);
     } finally {
       setIsGeneratingMetadata(false);
     }
@@ -106,6 +103,13 @@ export default function ReviewPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('youtube_reconnected') === 'true') {
+        toast.success('YouTube channel permissions updated successfully! You can now publish.');
+        setReauthNeeded(false);
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('youtube_reconnected');
+        window.history.replaceState({}, '', newUrl.toString());
+      }
       const targetJobId = urlParams.get('job_id') || undefined;
       fetchJobs(targetJobId);
     } else {
@@ -119,7 +123,7 @@ export default function ReviewPage() {
     try {
       const res = await fetch(`${API_BASE}/api/jobs/${selectedJob.id}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           ai_title: aiTitle,
           ai_description: aiDescription,
@@ -128,12 +132,19 @@ export default function ReviewPage() {
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to approve video');
+      if (!res.ok) {
+        if (res.status === 403 || data.error === 'YOUTUBE_REAUTH_REQUIRED' || String(data.details).includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || String(data.details).includes('insufficientPermissions')) {
+          setReauthNeeded(true);
+          throw new Error('YouTube requires updated channel permissions to edit/publish videos. Click "Reconnect YouTube Channel" below.');
+        }
+        throw new Error(data.error || 'Failed to approve video');
+      }
 
       if (publishNow) {
         toast.success('Video Published Publicly to YouTube!');
       } else {
-        toast.success(`Video Scheduled for ${new Date(data.scheduled_slot).toLocaleString()}`);
+        const slot = new Date(data.scheduled_slot);
+        toast.success(`Scheduled for ${slot.toLocaleString()} (US Peak Window)`);
       }
 
       await fetchJobs();
@@ -151,7 +162,8 @@ export default function ReviewPage() {
     setSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/api/jobs/${selectedJob.id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error('Failed to delete job');
       toast.success('Job removed');
@@ -178,41 +190,66 @@ export default function ReviewPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto pb-32">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto pb-36">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-            <Eye className="w-8 h-8 text-orange-600" />
-            Review & Schedule Studio
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2.5 sm:gap-3">
+            <Eye className="w-7 h-7 sm:w-8 sm:h-8 text-orange-600 shrink-0" />
+            <span>Review & Schedule Studio</span>
           </h1>
-          <p className="text-gray-500 mt-2">
+          <p className="text-gray-500 text-xs sm:text-sm mt-1 sm:mt-2">
             Inspect rendered videos, edit titles & descriptions, and schedule for peak YouTube Shorts viewership.
           </p>
         </div>
 
-        {/* Tab Toggle */}
-        <div className="flex bg-gray-100 p-1 rounded-xl">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <button
-            onClick={() => setActiveTab('READY_FOR_REVIEW')}
-            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
-              activeTab === 'READY_FOR_REVIEW'
-                ? 'bg-white text-orange-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            onClick={() => {
+              if (activeChannel) {
+                window.location.href = `${API_BASE}/api/auth/youtube/connect?channel_id=${activeChannel.id}&return_to=/review${selectedJob ? `?job_id=${selectedJob.id}` : ''}`;
+              }
+            }}
+            title="Update or fix YouTube video publishing permissions"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl shadow-xs transition-colors shrink-0"
           >
-            Needs Review ({activeTab === 'READY_FOR_REVIEW' ? jobs.length : '...'})
+            <RefreshCw className="w-3.5 h-3.5 text-gray-500" />
+            <span>Reconnect Permissions</span>
           </button>
-          <button
-            onClick={() => setActiveTab('SCHEDULED')}
-            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
-              activeTab === 'SCHEDULED'
-                ? 'bg-white text-blue-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Scheduled Queue
-          </button>
+
+          {/* Tab Toggle */}
+          <div className="flex bg-gray-100 p-1 rounded-xl overflow-x-auto scrollbar-none max-w-full">
+            <button
+              onClick={() => setActiveTab('READY_FOR_REVIEW')}
+              className={`whitespace-nowrap px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
+                activeTab === 'READY_FOR_REVIEW'
+                  ? 'bg-white text-orange-600 shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Needs Review ({activeTab === 'READY_FOR_REVIEW' ? jobs.length : '...'})
+            </button>
+            <button
+              onClick={() => setActiveTab('SCHEDULED')}
+              className={`whitespace-nowrap px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
+                activeTab === 'SCHEDULED'
+                  ? 'bg-white text-blue-600 shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Scheduled ({activeTab === 'SCHEDULED' ? jobs.length : '...'})
+            </button>
+            <button
+              onClick={() => setActiveTab('PUBLISHED')}
+              className={`whitespace-nowrap px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all ${
+                activeTab === 'PUBLISHED'
+                  ? 'bg-white text-purple-600 shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Published ({activeTab === 'PUBLISHED' ? jobs.length : '...'})
+            </button>
+          </div>
         </div>
       </div>
 
@@ -225,12 +262,14 @@ export default function ReviewPage() {
         <div className="p-16 text-center bg-white rounded-2xl border border-gray-200 shadow-sm">
           <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-gray-900 mb-2">
-            {activeTab === 'READY_FOR_REVIEW' ? 'All Caught Up!' : 'No Scheduled Videos'}
+            {activeTab === 'READY_FOR_REVIEW' ? 'All Caught Up!' : activeTab === 'SCHEDULED' ? 'No Scheduled Videos' : 'No Published Videos Yet'}
           </h3>
           <p className="text-gray-500 max-w-md mx-auto mb-6">
             {activeTab === 'READY_FOR_REVIEW'
               ? 'There are no rendered videos currently awaiting review. New videos rendered by the Colab worker will appear here automatically.'
-              : 'There are currently no videos scheduled to publish in this channel.'}
+              : activeTab === 'SCHEDULED'
+              ? 'There are currently no videos scheduled to publish in this channel.'
+              : 'No videos have been published yet for this project.'}
           </p>
           <button 
             onClick={() => fetchJobs()}
@@ -240,7 +279,7 @@ export default function ReviewPage() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
           {/* Left Column: Clips List */}
           <div className="lg:col-span-4 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-gray-200">
@@ -256,7 +295,7 @@ export default function ReviewPage() {
               </button>
             </div>
 
-            <div className="space-y-2.5 max-h-[750px] overflow-y-auto pr-1">
+            <div className="space-y-2 sm:space-y-2.5 max-h-[300px] sm:max-h-[360px] lg:max-h-[750px] overflow-y-auto pr-1">
               {jobs.map(job => {
                 const isSelected = selectedJob?.id === job.id;
                 const createdDate = new Date(job.created_at);
@@ -283,11 +322,15 @@ export default function ReviewPage() {
                             <Clock className="w-3 h-3 mr-1" />
                             {createdDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          {job.youtube_video_id && (
+                          {job.status === 'PUBLISHED' ? (
+                            <span className="text-[10px] font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
+                              Published
+                            </span>
+                          ) : job.youtube_video_id ? (
                             <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">
                               Uploaded
                             </span>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -437,44 +480,86 @@ export default function ReviewPage() {
                 )}
               </div>
 
+              {/* Reauth Warning Alert Banner */}
+              {reauthNeeded && (
+                <div className="mx-6 mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                    <div className="text-xs">
+                      <p className="font-semibold text-amber-900">YouTube Re-authorization Needed</p>
+                      <p className="text-amber-700">Google requires video edit permissions to update privacy and titles. Click below to reconnect.</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      window.location.href = `${API_BASE}/api/auth/youtube/connect?channel_id=${activeChannel?.id}&return_to=/review${selectedJob ? `?job_id=${selectedJob.id}` : ''}`;
+                    }}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors shrink-0 flex items-center gap-1.5 shadow-sm"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Reconnect YouTube Channel
+                  </button>
+                </div>
+              )}
+
               {/* Action Bar Footer */}
-              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex flex-wrap items-center justify-between gap-3">
+              <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                 <button
                   onClick={handleDelete}
                   disabled={submitting}
-                  className="inline-flex items-center px-3 py-2 border border-red-200 text-xs font-semibold rounded-lg text-red-600 bg-red-50 hover:bg-red-100 transition-colors disabled:opacity-50"
+                  className="inline-flex items-center justify-center px-3 py-2 border border-red-200 text-xs font-semibold rounded-lg text-red-600 bg-red-50 hover:bg-red-100 transition-colors disabled:opacity-50"
                 >
                   <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                  Reject / Delete
+                  {selectedJob.status === 'PUBLISHED' ? 'Remove from List' : 'Reject / Delete'}
                 </button>
 
-                <div className="flex items-center space-x-3">
-                  <button
-                    onClick={() => handleApprove(false)}
-                    disabled={submitting || isGeneratingMetadata}
-                    className="px-5 py-2.5 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm flex items-center transition-colors disabled:opacity-50"
-                  >
-                    {submitting ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Calendar className="w-4 h-4 mr-2 text-blue-400" />
+                {selectedJob.status === 'PUBLISHED' ? (
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 sm:space-x-3 justify-end">
+                    <span className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">
+                      <CheckCircle2 className="w-4 h-4 mr-1.5 text-purple-600" />
+                      Live on YouTube
+                    </span>
+                    {selectedJob.youtube_video_id && (
+                      <a
+                        href={`https://www.youtube.com/shorts/${selectedJob.youtube_video_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-xs flex items-center justify-center transition-colors"
+                      >
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        Watch on YouTube
+                      </a>
                     )}
-                    Approve & Schedule (Peak Hour)
-                  </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:space-x-3">
+                    <button
+                      onClick={() => handleApprove(false)}
+                      disabled={submitting || isGeneratingMetadata}
+                      className="px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-xs flex items-center justify-center transition-colors disabled:opacity-50"
+                    >
+                      {submitting ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Calendar className="w-4 h-4 mr-2 text-blue-400" />
+                      )}
+                      Schedule (US Peak)
+                    </button>
 
-                  <button
-                    onClick={() => handleApprove(true)}
-                    disabled={submitting || isGeneratingMetadata}
-                    className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm flex items-center transition-colors disabled:opacity-50"
-                  >
-                    {submitting ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4 mr-2" />
-                    )}
-                    Publish Publicly Now
-                  </button>
-                </div>
+                    <button
+                      onClick={() => handleApprove(true)}
+                      disabled={submitting || isGeneratingMetadata}
+                      className="px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs flex items-center justify-center transition-colors disabled:opacity-50"
+                    >
+                      {submitting ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4 mr-2" />
+                      )}
+                      Publish Publicly Now
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
