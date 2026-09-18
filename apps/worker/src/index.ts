@@ -124,7 +124,7 @@ app.get('/api/auth/youtube/callback', async (c) => {
   const frontendUrl = c.env.FRONTEND_URL || 'https://reelnexus-dashboard.pages.dev';
 
   if (error || !code || !channelId) {
-    return c.redirect(`${frontendUrl}/channels?error=oauth_failed`);
+    return c.redirect(`${frontendUrl}/?error=oauth_failed`);
   }
 
   const redirectUri = new URL('/api/auth/youtube/callback', c.req.url).toString();
@@ -148,10 +148,10 @@ app.get('/api/auth/youtube/callback', async (c) => {
 
     const data: any = await tokenResponse.json();
     
-    return c.redirect(`${frontendUrl}/channels?success=true&access_token=${data.access_token}&refresh_token=${data.refresh_token}`);
+    return c.redirect(`${frontendUrl}/?success=true&access_token=${data.access_token}&refresh_token=${data.refresh_token}`);
   } catch (e) {
     console.error('OAuth token exchange failed:', e);
-    return c.redirect(`${frontendUrl}/channels?error=token_exchange_failed`);
+    return c.redirect(`${frontendUrl}/?error=token_exchange_failed`);
   }
 });
 
@@ -731,6 +731,15 @@ app.post('/api/jobs/claim', async (c) => {
        client_id: c.env.GOOGLE_CLIENT_ID,
        client_secret: c.env.GOOGLE_CLIENT_SECRET,
        channel_id: channel.id
+    };
+  }
+
+  const masterDrive = await c.env.DB.prepare(`SELECT value FROM global_settings WHERE key = 'master_drive_refresh_token'`).first();
+  if (masterDrive && masterDrive.value) {
+    jobData.master_drive_token_data = {
+       refresh_token: masterDrive.value as string,
+       client_id: c.env.GOOGLE_CLIENT_ID,
+       client_secret: c.env.GOOGLE_CLIENT_SECRET
     };
   }
 

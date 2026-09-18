@@ -37,12 +37,13 @@ def get_google_services(token_data):
     )
     
     if not creds.valid:
-        if creds.expired and creds.refresh_token:
-            print("🔄 Access token expired, refreshing...")
+        if (creds.expired or creds.token is None) and creds.refresh_token:
+            print("🔄 Access token expired or missing, refreshing...")
             creds.refresh(Request())
-            requests.post(f"{API_BASE_URL}/api/channels/{token_data['channel_id']}/token", 
-                          headers={'X-Colab-Key': COLAB_API_KEY}, 
-                          json={'access_token': creds.token, 'refresh_token': creds.refresh_token})
+            if "channel_id" in token_data:
+                requests.post(f"{API_BASE_URL}/api/channels/{token_data['channel_id']}/token", 
+                              headers={'X-Colab-Key': COLAB_API_KEY}, 
+                              json={'access_token': creds.token, 'refresh_token': creds.refresh_token})
         else:
             raise RuntimeError("Invalid token and no refresh token available.")
             
