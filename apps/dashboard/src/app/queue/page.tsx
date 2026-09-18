@@ -332,8 +332,18 @@ export default function QueuePage() {
                         </button>
                       )}
                       {job.status === 'SCHEDULED' && (
-                        <button onClick={() => handlePublishNow(job.id)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
-                          <Send className="w-3 h-3 mr-1.5" /> Publish Now
+                        <div className="flex space-x-2">
+                          <button onClick={() => setModalJob(job)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700">
+                            Review Video
+                          </button>
+                          <button onClick={() => handlePublishNow(job.id)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+                            <Send className="w-3 h-3 mr-1.5" /> Publish Now
+                          </button>
+                        </div>
+                      )}
+                      {job.status === 'PUBLISHED' && (
+                        <button onClick={() => setModalJob(job)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-gray-700 bg-gray-100 hover:bg-gray-200">
+                          View Published Details
                         </button>
                       )}
                       {(job.status === 'IDLE' || job.status === 'FAILED') && (
@@ -442,7 +452,7 @@ export default function QueuePage() {
                 {modalJob.youtube_video_id ? (
                   <div className="w-full aspect-[9/16] max-h-full max-w-[320px] bg-black rounded-xl overflow-hidden shadow-2xl relative ring-1 ring-gray-700">
                     <iframe 
-                      src={`https://www.youtube.com/embed/${modalJob.youtube_video_id}?autoplay=1&mute=1&loop=1&playlist=${modalJob.youtube_video_id}`}
+                      src={`https://www.youtube.com/embed/${modalJob.youtube_video_id}?autoplay=1&controls=1&mute=0&loop=1&playlist=${modalJob.youtube_video_id}`}
                       className="absolute inset-0 w-full h-full border-0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen
@@ -498,58 +508,70 @@ export default function QueuePage() {
               </div>
             </div>
 
-            <div className="px-6 py-5 bg-gray-50 border-t border-gray-200 flex items-center justify-between mt-auto shrink-0">
-              <button 
-                onClick={() => setModalJob(null)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-sm"
-              >
-                Cancel
-              </button>
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between mt-auto">
+              <div>
+                {modalJob.status === 'SCHEDULED' && (
+                  <span className="text-sm font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">Currently Scheduled to post at {new Date(modalJob.scheduled_at || '').toLocaleString()}</span>
+                )}
+                {modalJob.status === 'PUBLISHED' && (
+                  <span className="text-sm font-medium text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100">Published on {new Date(modalJob.published_at || '').toLocaleString()}</span>
+                )}
+              </div>
               <div className="flex space-x-3">
                 <button 
-                  onClick={async () => {
-                    try {
-                      const res = await fetch(`${API_BASE}/api/jobs/${modalJob.id}/approve`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...modalJob, publish_now: false })
-                      });
-                      const data = await res.json();
-                      if (!res.ok) throw new Error(data.error);
-                      toast.success('Video Scheduled!');
-                      setModalJob(null);
-                      fetchJobs();
-                    } catch (e: any) {
-                      toast.error(e.message);
-                    }
-                  }}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm flex items-center"
+                  onClick={() => setModalJob(null)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-sm"
                 >
-                  <Calendar className="w-4 h-4 mr-2" />
-                  Approve & Schedule
+                  Cancel
                 </button>
-                <button 
-                  onClick={async () => {
-                    try {
-                      const res = await fetch(`${API_BASE}/api/jobs/${modalJob.id}/approve`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...modalJob, publish_now: true })
-                      });
-                      const data = await res.json();
-                      if (!res.ok) throw new Error(data.error);
-                      toast.success('Video Published to YouTube!');
-                      setModalJob(null);
-                      fetchJobs();
-                    } catch (e: any) {
-                      toast.error(e.message);
-                    }
-                  }}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm flex items-center"
-                >
-                  <Send className="w-4 h-4 mr-2" />
-                  Publish Publicly Now
-                </button>
+                {modalJob.status !== 'PUBLISHED' && (
+                  <>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`${API_BASE}/api/jobs/${modalJob.id}/approve`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ...modalJob, publish_now: false })
+                          });
+                          const data = await res.json();
+                          if (!res.ok) throw new Error(data.error);
+                          toast.success('Video Scheduled!');
+                          setModalJob(null);
+                          fetchJobs();
+                        } catch (e: any) {
+                          toast.error(e.message);
+                        }
+                      }}
+                      className="px-5 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm flex items-center"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Approve & Schedule
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`${API_BASE}/api/jobs/${modalJob.id}/approve`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ...modalJob, publish_now: true })
+                          });
+                          const data = await res.json();
+                          if (!res.ok) throw new Error(data.error);
+                          toast.success('Video Published to YouTube!');
+                          setModalJob(null);
+                          fetchJobs();
+                        } catch (e: any) {
+                          toast.error(e.message);
+                        }
+                      }}
+                      className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm flex items-center"
+                    >
+                      <Send className="w-4 h-4 mr-2" />
+                      Publish Publicly Now
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
