@@ -671,8 +671,22 @@ app.post('/api/jobs/:id/publish-now', async (c) => {
   const job = await c.env.DB.prepare(`SELECT * FROM render_jobs WHERE id = ?`).bind(id).first();
   if (!job || !job.youtube_video_id) return c.json({ error: 'Job not found or missing youtube_video_id' }, 404);
   
-  const channel = await c.env.DB.prepare(`SELECT youtube_access_token FROM channels WHERE id = ?`).bind(job.channel_id).first();
-  if (!channel || !channel.youtube_access_token) return c.json({ error: 'Channel YouTube token missing' }, 400);
+  const channel = await c.env.DB.prepare(`SELECT youtube_refresh_token FROM channels WHERE id = ?`).bind(job.channel_id).first();
+  if (!channel || !channel.youtube_refresh_token) return c.json({ error: 'Channel YouTube token missing' }, 400);
+
+  // Exchange refresh token for an access token
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: c.env.GOOGLE_CLIENT_ID || '',
+      client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
+      refresh_token: channel.youtube_refresh_token as string,
+      grant_type: 'refresh_token'
+    }).toString()
+  });
+  const tokenData: any = await tokenResponse.json();
+  if (!tokenData.access_token) return c.json({ error: 'Failed to refresh YouTube token' }, 401);
 
   // Call YouTube API to update privacy status to public
   const ytBody = {
@@ -692,7 +706,7 @@ app.post('/api/jobs/:id/publish-now', async (c) => {
   const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${channel.youtube_access_token}`,
+      'Authorization': `Bearer ${tokenData.access_token}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(ytBody)
@@ -909,7 +923,7 @@ app.post('/api/jobs/:id/approve', async (c) => {
   const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${channel.youtube_access_token}`,
+      'Authorization': `Bearer ${tokenData.access_token}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(ytBody)
