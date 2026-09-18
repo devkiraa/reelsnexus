@@ -114,40 +114,84 @@ async function getTrendingKeywords(niche: string): Promise<string[]> {
   }
 }
 
-async function generateVisionMetadata(env: Env, imageBase64: string, niche: string, trendingKeywords: string[]) {
-  const prompt = `Analyze this video frame. Live trending search terms: ${JSON.stringify(trendingKeywords)}.
+async function generateVideoMetadata(env: Env, fileName: string, niche: string, trendingKeywords: string[], imageBase64?: string) {
+  // 1. Try Vision model if keyframe is provided
+  if (imageBase64 && imageBase64.length > 50) {
+    try {
+      const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '').trim();
+      const binaryString = atob(cleanBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const imageArray = Array.from(bytes);
 
+      const prompt = `Analyze this video keyframe. Trending keywords: ${JSON.stringify(trendingKeywords)}.
 Generate YouTube Shorts metadata formatted strictly as JSON with keys:
-* "title": Curiosity-hook title under 50 characters ending with #Shorts.
-* "hook": 1-sentence pattern-interrupt text for the first 2 seconds.
-* "loop_line": Closing sentence engineered for seamless looping.
-* "description": 2 sentences with high-density search terms.
-* "tags": Array of 4-6 hashtags.`;
+"title": Curiosity-driven title under 55 characters ending with #Shorts.
+"description": 2-3 engaging SEO sentences.
+"tags": Array of 5-8 hashtags.`;
 
-  const binaryString = atob(imageBase64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+      const aiRes: any = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+        prompt,
+        image: imageArray,
+        max_tokens: 512
+      });
+
+      const content = aiRes?.response || '';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.title) return parsed;
+      }
+    } catch (e) {
+      console.warn('Vision metadata generation failed, attempting text LLM:', e);
+    }
   }
-  const imageArray = [...bytes];
 
+  // 2. High-reliability Text LLM (Llama 3.1 8B Instruct)
   try {
-    const aiRes: any = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-      prompt,
-      image: imageArray,
-      max_tokens: 512
+    const cleanFileName = fileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+    const systemPrompt = `You are an elite YouTube Shorts SEO & viral content creator. Generate high-CTR titles and descriptions designed to maximize retention. Respond in pure JSON format only, with no commentary.`;
+    const userPrompt = `Create viral YouTube Shorts metadata for:
+- Video file: "${cleanFileName}"
+- Channel niche: "${niche}"
+- Trending terms: ${JSON.stringify(trendingKeywords)}
+
+Return JSON with exact keys:
+{
+  "title": "A viral, punchy title under 55 chars ending with #Shorts",
+  "description": "Engaging 2-3 sentence description using SEO terms to hook viewers.",
+  "tags": ["shorts", "tag1", "tag2", "tag3", "tag4", "tag5"]
+}`;
+
+    const aiRes: any = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      max_tokens: 512,
+      temperature: 0.7
     });
-    
-    const content = aiRes?.response || '{}';
-    
+
+    const content = aiRes?.response || '';
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
     return JSON.parse(content);
   } catch (e) {
-    console.error('Metadata generation failed:', e);
-    return null;
+    console.error('Llama 3.1 text metadata generation failed:', e);
+    // 3. Dynamic procedural fallback based on niche and filename
+    const cleanName = fileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+    const formattedTitle = cleanName.length > 2 
+      ? cleanName.charAt(0).toUpperCase() + cleanName.slice(1)
+      : `${niche} Moment`;
+    return {
+      title: `${formattedTitle} 🔥 #Shorts`,
+      description: `Watch this unforgettable clip! Subscribe for more daily ${niche} Shorts and highlights.`,
+      tags: ["shorts", "viral", niche.toLowerCase().replace(/[^a-z0-9]/g, ''), "trending", "explore"]
+    };
   }
 }
 
@@ -929,7 +973,7 @@ app.post('/api/jobs/complete', async (c) => {
       ).bind(today, today, channel?.id).run();
 
       const keywords = await getTrendingKeywords(niche as string);
-      const meta = await generateVisionMetadata(c.env, imageBase64, niche as string, keywords);
+      const meta = await generateVideoMetadata(c.env, (job as any)?.file_name || 'Shorts Video', niche as string, keywords, imageBase64);
       
       if (meta) {
         aiTitle = meta.title || aiTitle;
@@ -955,6 +999,40 @@ app.post('/api/jobs/complete', async (c) => {
   ).bind(newStatus, aiTitle, aiDescription, aiTags, youtubeVideoId, jobId).run();
 
   return c.json({ success: true });
+});
+
+// Endpoint for UI to trigger AI generation on demand with skeleton loading
+app.post('/api/jobs/:id/generate-metadata', async (c) => {
+  const id = c.req.param('id');
+  const job = await c.env.DB.prepare(`SELECT * FROM render_jobs WHERE id = ?`).bind(id).first();
+  if (!job) return c.json({ error: 'Job not found' }, 404);
+
+  const channel = await c.env.DB.prepare(`SELECT * FROM channels WHERE id = ?`).bind(job.channel_id).first();
+  const niche = (channel?.niche as string) || 'general';
+  const keywords = await getTrendingKeywords(niche);
+
+  const meta = await generateVideoMetadata(c.env, (job.file_name as string) || 'Shorts Video', niche, keywords);
+
+  const title = meta.title || `${job.file_name} #Shorts`;
+  let description = meta.description || `Enjoy this video!`;
+  const tags = Array.isArray(meta.tags) ? meta.tags.join(',') : (meta.tags || 'shorts,viral,trending');
+
+  const emailStr = channel?.contact_email ? channel.contact_email : 'us';
+  const dmcaBlock = `\n\n---\n⚠️ Copyright/DMCA Notice: This video is heavily transformative and edited under fair use guidelines. However, if you are the original owner of any clips and wish for them to be removed, please contact ${emailStr} and we will immediately take this down.`;
+  if (!description.includes('Copyright/DMCA Notice')) {
+    description += dmcaBlock;
+  }
+
+  await c.env.DB.prepare(
+    `UPDATE render_jobs SET ai_title = ?, ai_description = ?, ai_tags = ? WHERE id = ?`
+  ).bind(title, description, tags, id).run();
+
+  return c.json({
+    success: true,
+    ai_title: title,
+    ai_description: description,
+    ai_tags: tags
+  });
 });
 
 function getNextUSPeakSlot(latestScheduled: string | null): Date {
