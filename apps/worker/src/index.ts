@@ -1166,9 +1166,9 @@ app.get('/api/jobs', async (c) => {
   let countQuery = 'SELECT COUNT(*) as total FROM render_jobs WHERE channel_id = ?';
   const params: any[] = [channelId];
 
-  if (status === 'ALL') {
-    query += " AND status != 'PUBLISHED'";
-    countQuery += " AND status != 'PUBLISHED'";
+  if (status === 'ALL' || status === 'IDLE') {
+    query += " AND status = 'IDLE'";
+    countQuery += " AND status = 'IDLE'";
   } else if (status !== 'EVERYTHING') {
     query += ' AND status = ?';
     countQuery += ' AND status = ?';

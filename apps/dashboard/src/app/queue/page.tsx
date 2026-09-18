@@ -159,14 +159,14 @@ export default function QueuePage() {
   }
 
   const TABS = [
-    { id: 'ALL', label: 'Active Pipeline' },
-    { id: 'IDLE', label: 'Idle / Staged' },
+    { id: 'ALL', label: 'Active Pipeline (Idle / Staged)' },
     { id: 'QUEUED_FOR_RENDER', label: 'Queued for Render' },
     { id: 'PROCESSING', label: 'Processing' },
     { id: 'READY_FOR_REVIEW', label: 'Review Required' },
     { id: 'SCHEDULED', label: 'Scheduled' },
     { id: 'PUBLISHED', label: 'Published' },
-    { id: 'FAILED', label: 'Failed' }
+    { id: 'FAILED', label: 'Failed' },
+    { id: 'EVERYTHING', label: 'All Jobs' }
   ];
 
   const getStatusBadge = (status: string) => {
