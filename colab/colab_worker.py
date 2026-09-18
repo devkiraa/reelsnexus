@@ -4,6 +4,7 @@ import requests
 import subprocess
 import json
 import base64
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 # Google API clients
@@ -232,7 +233,8 @@ def main_loop():
         job = claim_job()
         if job:
             print(f"Claimed job: {job['id']}")
-            input_path = f"/tmp/{job['file_name']}"
+            tmp_dir = tempfile.gettempdir()
+            input_path = os.path.join(tmp_dir, job['file_name'])
             
             # Download actual video if we have credentials
             if job.get("master_drive_token_data"):
@@ -241,7 +243,7 @@ def main_loop():
             else:
                 with open(input_path, 'w') as f: f.write('dummy raw video')
 
-            output_path = f"/tmp/processed_{job['file_name']}"
+            output_path = os.path.join(tmp_dir, f"processed_{job['file_name']}")
             
             try:
                 out_vid, out_frame = process_video(input_path, output_path, job)
