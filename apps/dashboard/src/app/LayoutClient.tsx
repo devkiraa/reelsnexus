@@ -110,6 +110,31 @@ export function SidebarNav() {
   } = useProject();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [reviewCount, setReviewCount] = useState<number>(0);
+
+  useEffect(() => {
+    if (!activeChannel) {
+      setReviewCount(0);
+      return;
+    }
+    const checkReviews = async () => {
+      try {
+        const apiBase = process.env.NODE_ENV === 'development' 
+          ? 'http://localhost:8787' 
+          : 'https://reelnexus-worker.devkiraa.workers.dev';
+        const res = await fetch(`${apiBase}/api/jobs?channel_id=${activeChannel.id}&status=READY_FOR_REVIEW&limit=1`);
+        if (res.ok) {
+          const data = await res.json();
+          setReviewCount(data.total || 0);
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    checkReviews();
+    const timer = setInterval(checkReviews, 15000);
+    return () => clearInterval(timer);
+  }, [activeChannel]);
 
   // Import Modal State
   const [selectedDiscovered, setSelectedDiscovered] = useState<any>(null);
@@ -224,6 +249,14 @@ export function SidebarNav() {
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
           <a href="/" className="block px-4 py-2 rounded-md hover:bg-blue-50 hover:text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors">Dashboard</a>
           <a href="/queue" className="block px-4 py-2 rounded-md hover:bg-blue-50 hover:text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors">Queue</a>
+          <a href="/review" className="flex items-center justify-between px-4 py-2 rounded-md hover:bg-orange-50 hover:text-orange-600 focus-visible:ring-2 focus-visible:ring-orange-500 transition-colors font-medium">
+            <span>Review & Schedule</span>
+            {reviewCount > 0 && (
+              <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-xs">
+                {reviewCount}
+              </span>
+            )}
+          </a>
           <a href="/ingest" className="block px-4 py-2 rounded-md hover:bg-blue-50 hover:text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors">Ingest</a>
           <a href="/watermark" className="block px-4 py-2 rounded-md hover:bg-blue-50 hover:text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors">Watermark Studio</a>
           <a href="/settings" className="block px-4 py-2 rounded-md hover:bg-blue-50 hover:text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors">Settings</a>

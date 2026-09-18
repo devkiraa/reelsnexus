@@ -327,24 +327,33 @@ export default function QueuePage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
                       {job.status === 'READY_FOR_REVIEW' && (
-                        <button onClick={() => setModalJob(job)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-orange-600 hover:bg-orange-700">
+                        <a 
+                          href={`/review?job_id=${job.id}`} 
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-semibold rounded-md shadow-sm text-white bg-orange-600 hover:bg-orange-700 transition-colors"
+                        >
                           Review & Schedule
-                        </button>
+                        </a>
                       )}
                       {job.status === 'SCHEDULED' && (
-                        <div className="flex space-x-2">
-                          <button onClick={() => setModalJob(job)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700">
+                        <div className="flex space-x-2 justify-end">
+                          <a 
+                            href={`/review?job_id=${job.id}`} 
+                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-xs"
+                          >
                             Review Video
-                          </button>
+                          </a>
                           <button onClick={() => handlePublishNow(job.id)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
                             <Send className="w-3 h-3 mr-1.5" /> Publish Now
                           </button>
                         </div>
                       )}
                       {job.status === 'PUBLISHED' && (
-                        <button onClick={() => setModalJob(job)} className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-gray-700 bg-gray-100 hover:bg-gray-200">
-                          View Published Details
-                        </button>
+                        <a 
+                          href={`/review?job_id=${job.id}`} 
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-gray-700 bg-gray-100 hover:bg-gray-200"
+                        >
+                          View Details
+                        </a>
                       )}
                       {(job.status === 'IDLE' || job.status === 'FAILED') && (
                         <button onClick={() => {

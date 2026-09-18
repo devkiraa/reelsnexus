@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "deploy": "next build --webpack && wrangler pages deploy out --project-name=reelnexus-dashboard --branch master"
+    "deploy": "next build --webpack && wrangler pages deploy out --project-name=reelnexus-dashboard --branch main"
   },
   "dependencies": {
     "lucide-react": "^1.46.0",
