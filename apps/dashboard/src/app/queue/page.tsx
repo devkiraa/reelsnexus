@@ -250,12 +250,12 @@ export default function QueuePage() {
       </div>
 
       {/* Quick Select Toolbar */}
-      <div className="flex items-center space-x-2 mb-4 bg-gray-50 p-2 rounded-lg border border-gray-200 shadow-xs overflow-x-auto scrollbar-none">
-        <span className="text-[11px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider px-2 shrink-0">Quick Select:</span>
-        <button onClick={() => selectNext(5)} className="px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-xs transition-colors whitespace-nowrap shrink-0">Next 5</button>
-        <button onClick={() => selectNext(10)} className="px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-xs transition-colors whitespace-nowrap shrink-0">Next 10</button>
-        <button onClick={() => handleSelectAll({ target: { checked: true } } as any)} className="px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-xs transition-colors whitespace-nowrap shrink-0">Select Visible</button>
-        <button onClick={() => setSelectedIds(new Set())} className="px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-xs transition-colors whitespace-nowrap shrink-0">Deselect All</button>
+      <div className="flex items-center space-x-2 mb-4 bg-gray-50 p-2 sm:p-2.5 rounded-xl border border-gray-200 shadow-xs overflow-x-auto scrollbar-none">
+        <span className="text-xs font-bold text-gray-500 uppercase tracking-wider px-2 shrink-0">Quick Select:</span>
+        <button onClick={() => selectNext(5)} className="px-3 py-2 text-xs font-semibold rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-2xs transition-colors whitespace-nowrap shrink-0 min-h-[36px]">Next 5</button>
+        <button onClick={() => selectNext(10)} className="px-3 py-2 text-xs font-semibold rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-2xs transition-colors whitespace-nowrap shrink-0 min-h-[36px]">Next 10</button>
+        <button onClick={() => handleSelectAll({ target: { checked: true } } as any)} className="px-3 py-2 text-xs font-semibold rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-2xs transition-colors whitespace-nowrap shrink-0 min-h-[36px]">Select Visible</button>
+        <button onClick={() => setSelectedIds(new Set())} className="px-3 py-2 text-xs font-semibold rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 shadow-2xs transition-colors whitespace-nowrap shrink-0 min-h-[36px]">Deselect All</button>
       </div>
 
       {/* Table */}
@@ -314,11 +314,11 @@ export default function QueuePage() {
                     </div>
 
                     {/* Mobile Action Buttons */}
-                    <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-end gap-2">
+                    <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-end gap-2 sm:gap-2.5">
                       {job.status === 'READY_FOR_REVIEW' && (
                         <a 
                           href={`/review?job_id=${job.id}`} 
-                          className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-md shadow-xs text-white bg-orange-600 hover:bg-orange-700"
+                          className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg shadow-xs text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 min-h-[40px]"
                         >
                           Review & Schedule
                         </a>
@@ -327,12 +327,12 @@ export default function QueuePage() {
                         <>
                           <a 
                             href={`/review?job_id=${job.id}`} 
-                            className="inline-flex items-center px-2.5 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                            className="flex-1 sm:flex-initial inline-flex items-center justify-center px-3.5 py-2 border border-gray-300 text-xs sm:text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 active:bg-gray-100 min-h-[40px]"
                           >
                             Review
                           </a>
-                          <button onClick={() => handlePublishNow(job.id)} className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
-                            <Send className="w-3 h-3 mr-1" /> Publish
+                          <button onClick={() => handlePublishNow(job.id)} className="flex-1 sm:flex-initial inline-flex items-center justify-center px-3.5 py-2 text-xs sm:text-sm font-bold rounded-lg text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 min-h-[40px]">
+                            <Send className="w-3.5 h-3.5 mr-1.5" /> Publish
                           </button>
                         </>
                       )}
@@ -340,7 +340,7 @@ export default function QueuePage() {
                         <>
                           <a 
                             href={`/review?job_id=${job.id}`} 
-                            className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-md text-gray-700 bg-gray-100"
+                            className="flex-1 sm:flex-initial inline-flex items-center justify-center px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg text-gray-700 bg-gray-100 active:bg-gray-200 min-h-[40px]"
                           >
                             Details
                           </a>
@@ -349,7 +349,7 @@ export default function QueuePage() {
                               href={`https://www.youtube.com/shorts/${job.youtube_video_id}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center px-2.5 py-1.5 border border-purple-200 text-xs font-semibold rounded-md text-purple-700 bg-purple-50"
+                              className="flex-1 sm:flex-initial inline-flex items-center justify-center px-3.5 py-2 border border-purple-200 text-xs sm:text-sm font-bold rounded-lg text-purple-700 bg-purple-50 active:bg-purple-100 min-h-[40px]"
                             >
                               Watch
                             </a>
@@ -360,7 +360,7 @@ export default function QueuePage() {
                         <button onClick={() => {
                           setSelectedIds(new Set([job.id]));
                           handleBatchDelete();
-                        }} className="text-red-500 hover:text-red-700 inline-flex items-center p-1.5 rounded-md hover:bg-red-50">
+                        }} className="text-red-500 hover:text-red-700 active:bg-red-100 inline-flex items-center justify-center p-2.5 rounded-lg hover:bg-red-50 border border-red-100 min-h-[40px] min-w-[40px]">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
