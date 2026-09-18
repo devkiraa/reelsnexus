@@ -29,3 +29,21 @@ persist = true
 
 [vars]
 FRONTEND_URL = "https://reelnexus-dashboard.pages.dev"
+
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
+
+[[unsafe.bindings]]
+name = "AI_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 10, period = 60 }
+
+[[unsafe.bindings]]
+name = "DB_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1003"
+simple = { limit = 40, period = 60 }

@@ -2,9 +2,16 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { File } from 'megajs';
 
+export type RateLimiter = {
+  limit: (options: { key: string }) => Promise<{ success: boolean }>;
+};
+
 export type Env = {
   DB: D1Database;
   AI: any;
+  RATE_LIMITER?: RateLimiter;
+  AI_RATE_LIMITER?: RateLimiter;
+  DB_RATE_LIMITER?: RateLimiter;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   COLAB_API_KEY: string;
@@ -18,6 +25,76 @@ app.use('*', cors({
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Colab-Key'],
 }));
+
+// --- Rate Limiting & DDoS Protection Middlewares ---
+
+// 1. General API Rate Limiting (Protects Backend from Floods/DDoS)
+app.use('/api/*', async (c, next) => {
+  if (c.req.method === 'OPTIONS' || c.req.path === '/') return next();
+
+  // Whitelist authenticated Colab Worker calls
+  const colabKey = c.req.header('X-Colab-Key');
+  if (colabKey && colabKey === c.env.COLAB_API_KEY) {
+    return next();
+  }
+
+  const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-real-ip') || 'unknown';
+
+  if (c.env.RATE_LIMITER) {
+    try {
+      const { success } = await c.env.RATE_LIMITER.limit({ key: `api_${clientIp}` });
+      if (!success) {
+        return c.json({
+          error: 'TOO_MANY_REQUESTS',
+          message: 'Rate limit exceeded for API. Please slow down and try again shortly.'
+        }, 429);
+      }
+    } catch (err) {
+      console.warn('API rate limiter error:', err);
+    }
+  }
+
+  await next();
+});
+
+// 2. Heavy Database Write & Ingestion Rate Limiting (Protects D1 from Exhaustion)
+const HEAVY_DB_ROUTES = [
+  '/api/ingest/scan',
+  '/api/ingest/enqueue',
+  '/api/jobs/batch-status',
+  '/api/jobs/batch-delete',
+  '/api/projects/import'
+];
+
+app.use('/api/*', async (c, next) => {
+  if (c.req.method === 'OPTIONS') return next();
+
+  const isHeavyRoute = HEAVY_DB_ROUTES.some(route => c.req.path.startsWith(route));
+  if (isHeavyRoute) {
+    const colabKey = c.req.header('X-Colab-Key');
+    if (colabKey && colabKey === c.env.COLAB_API_KEY) {
+      return next();
+    }
+
+    const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-real-ip') || 'unknown';
+
+    if (c.env.DB_RATE_LIMITER) {
+      try {
+        const { success } = await c.env.DB_RATE_LIMITER.limit({ key: `db_${clientIp}` });
+        if (!success) {
+          return c.json({
+            error: 'DB_RATE_LIMIT_EXCEEDED',
+            message: 'Too many database operations requested. Please wait before retrying.'
+          }, 429);
+        }
+      } catch (err) {
+        console.warn('DB rate limiter error:', err);
+      }
+    }
+  }
+
+  await next();
+});
 
 app.get('/', (c) => c.json({ status: 'ok', service: 'ReelNexus Worker API is running!', docs: 'See /api endpoints.' }));
 
@@ -601,8 +678,8 @@ app.get('/api/channels/:id/scheduled', async (c) => {
 app.get('/api/jobs', async (c) => {
   const channelId = c.req.query('channel_id');
   const status = c.req.query('status') || 'ALL';
-  const page = parseInt(c.req.query('page') || '1', 10);
-  const limit = parseInt(c.req.query('limit') || '10', 10);
+  const page = Math.max(parseInt(c.req.query('page') || '1', 10), 1);
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '10', 10), 1), 100);
   const search = c.req.query('search') || '';
   const sortBy = c.req.query('sort_by') || 'name_asc';
 
@@ -828,22 +905,37 @@ app.post('/api/jobs/complete', async (c) => {
   let aiTags = "shorts,viral,trending";
 
   if (imageBase64) {
-    // Update daily AI quota
-    const today = new Date().toISOString().split('T')[0];
-    await c.env.DB.prepare(
-      `UPDATE channels SET 
-        daily_ai_requests = CASE WHEN last_ai_request_date = ? THEN daily_ai_requests + 1 ELSE 1 END,
-        last_ai_request_date = ?
-       WHERE id = ?`
-    ).bind(today, today, channel?.id).run();
+    let allowAi = true;
+    if (c.env.AI_RATE_LIMITER) {
+      try {
+        const { success } = await c.env.AI_RATE_LIMITER.limit({ key: `ai_${channel?.id || 'global'}` });
+        if (!success) {
+          console.warn(`[RateLimit] AI rate limit reached for channel ${channel?.id}. Using baseline metadata.`);
+          allowAi = false;
+        }
+      } catch (err) {
+        console.warn('AI rate limiter error:', err);
+      }
+    }
 
-    const keywords = await getTrendingKeywords(niche as string);
-    const meta = await generateVisionMetadata(c.env, imageBase64, niche as string, keywords);
-    
-    if (meta) {
-      aiTitle = meta.title || aiTitle;
-      aiDescription = meta.description || aiDescription;
-      aiTags = Array.isArray(meta.tags) ? meta.tags.join(',') : (meta.tags || aiTags);
+    if (allowAi) {
+      // Update daily AI quota
+      const today = new Date().toISOString().split('T')[0];
+      await c.env.DB.prepare(
+        `UPDATE channels SET 
+          daily_ai_requests = CASE WHEN last_ai_request_date = ? THEN daily_ai_requests + 1 ELSE 1 END,
+          last_ai_request_date = ?
+         WHERE id = ?`
+      ).bind(today, today, channel?.id).run();
+
+      const keywords = await getTrendingKeywords(niche as string);
+      const meta = await generateVisionMetadata(c.env, imageBase64, niche as string, keywords);
+      
+      if (meta) {
+        aiTitle = meta.title || aiTitle;
+        aiDescription = meta.description || aiDescription;
+        aiTags = Array.isArray(meta.tags) ? meta.tags.join(',') : (meta.tags || aiTags);
+      }
     }
   }
   
@@ -888,8 +980,23 @@ app.post('/api/jobs/:id/approve', async (c) => {
   const job = await c.env.DB.prepare(`SELECT channel_id, youtube_video_id FROM render_jobs WHERE id = ?`).bind(id).first();
   if (!job || !job.youtube_video_id) return c.json({ error: 'Job not found or missing youtube_video_id' }, 404);
   
-  const channel = await c.env.DB.prepare(`SELECT youtube_access_token FROM channels WHERE id = ?`).bind(job.channel_id).first();
-  if (!channel || !channel.youtube_access_token) return c.json({ error: 'Channel YouTube token missing' }, 400);
+  const channel = await c.env.DB.prepare(`SELECT youtube_refresh_token FROM channels WHERE id = ?`).bind(job.channel_id).first();
+  if (!channel || !channel.youtube_refresh_token) return c.json({ error: 'Channel YouTube token missing' }, 400);
+
+  // Exchange refresh token for an access token
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: c.env.GOOGLE_CLIENT_ID || '',
+      client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
+      refresh_token: channel.youtube_refresh_token as string,
+      grant_type: 'refresh_token'
+    }).toString()
+  });
+  const tokenData: any = await tokenResponse.json();
+  if (!tokenData.access_token) return c.json({ error: 'Failed to refresh YouTube token' }, 401);
+
   const latestJob = await c.env.DB.prepare(
     `SELECT scheduled_slot FROM render_jobs 
      WHERE channel_id = ? AND status = 'SCHEDULED' 
