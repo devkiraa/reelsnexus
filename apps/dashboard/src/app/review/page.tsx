@@ -532,16 +532,16 @@ export default function ReviewPage() {
                     )}
                   </div>
                 ) : (
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:space-x-3">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:space-x-3">
                     <button
                       onClick={() => handleApprove(false)}
                       disabled={submitting || isGeneratingMetadata}
-                      className="w-full sm:w-auto px-5 py-3.5 sm:py-2.5 text-sm font-bold text-white bg-gray-900 hover:bg-gray-800 active:bg-black rounded-xl sm:rounded-lg shadow-xs flex items-center justify-center transition-colors disabled:opacity-50 min-h-[48px] sm:min-h-0"
+                      className="w-full sm:w-auto px-7 py-4 sm:py-3.5 text-base sm:text-sm font-extrabold text-white bg-gray-950 hover:bg-gray-800 active:bg-black rounded-xl sm:rounded-lg shadow-md flex items-center justify-center transition-all disabled:opacity-50 min-h-[56px] border border-gray-800"
                     >
                       {submitting ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <Loader2 className="w-5 h-5 mr-2.5 animate-spin" />
                       ) : (
-                        <Calendar className="w-4 h-4 mr-2 text-blue-400" />
+                        <Calendar className="w-5 h-5 mr-2.5 text-blue-400" />
                       )}
                       Schedule (US Peak)
                     </button>
@@ -549,7 +549,7 @@ export default function ReviewPage() {
                     <button
                       onClick={() => handleApprove(true)}
                       disabled={submitting || isGeneratingMetadata}
-                      className="w-full sm:w-auto px-5 py-3.5 sm:py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-xl sm:rounded-lg shadow-xs flex items-center justify-center transition-colors disabled:opacity-50 min-h-[48px] sm:min-h-0"
+                      className="w-full sm:w-auto px-6 py-3.5 sm:py-3 text-base sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-xl sm:rounded-lg shadow-xs flex items-center justify-center transition-colors disabled:opacity-50 min-h-[50px]"
                     >
                       {submitting ? (
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
