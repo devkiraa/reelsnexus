@@ -721,8 +721,20 @@ app.post('/api/jobs/claim', async (c) => {
     ...job, 
     youtube_token_data: null, 
     channel_niche: channel?.niche || 'entertainment', 
-    channel_handle: channel?.channel_handle || `@${(channel?.channel_name as string || 'Shorts').replace(/\\s+/g, '')}`,
-    target_drive_folder_path: `ReelNexus/exported_videos/${(channel?.channel_name as string || 'General').replace(/[^a-zA-Z0-9-_]/g, '_')}`
+    channel_handle: channel?.channel_handle || `@${(channel?.channel_name as string || 'Shorts').replace(/\s+/g, '')}`,
+    target_drive_folder_path: `ReelNexus/exported_videos/${(channel?.channel_name as string || 'General').replace(/[^a-zA-Z0-9-_]/g, '_')}`,
+    watermark_text: channel?.watermark_text,
+    watermark_x: channel?.watermark_x,
+    watermark_y: channel?.watermark_y,
+    watermark_font_size: channel?.watermark_font_size,
+    watermark_font_color: channel?.watermark_font_color,
+    watermark_bg_enabled: channel?.watermark_bg_enabled,
+    watermark_bg_color: channel?.watermark_bg_color,
+    watermark_bg_opacity: channel?.watermark_bg_opacity,
+    watermark_opacity: channel?.watermark_opacity,
+    watermark_font_family: channel?.watermark_font_family,
+    watermark_border_radius: channel?.watermark_border_radius,
+    watermark_padding: channel?.watermark_padding
   };
   
   if (channel && channel.youtube_refresh_token) {

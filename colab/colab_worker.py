@@ -23,6 +23,24 @@ except ImportError:
 API_BASE_URL = os.environ.get('API_BASE_URL', 'http://localhost:8787')
 COLAB_API_KEY = os.environ.get('COLAB_API_KEY', 'default_dev_key')
 
+def ensure_fonts():
+    os.makedirs("/tmp/fonts", exist_ok=True)
+    fonts = {
+        "Inter": "https://github.com/rsms/inter/raw/master/docs/font-files/Inter-Bold.ttf",
+        "Montserrat": "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-Bold.ttf",
+        "Impact": "https://github.com/wix/react-native-ui-lib/raw/master/demo/src/assets/fonts/Impact.ttf",
+        "Arial Black": "https://github.com/matomo-org/travis-scripts/raw/master/fonts/Arial_Black.ttf"
+    }
+    for name, url in fonts.items():
+        path = f"/tmp/fonts/{name.replace(' ', '')}.ttf"
+        if not os.path.exists(path):
+            try:
+                r = requests.get(url, allow_redirects=True)
+                with open(path, 'wb') as f:
+                    f.write(r.content)
+            except Exception as e:
+                print(f"Failed to download font {name}: {e}")
+
 def get_google_services(token_data):
     """Initializes YouTube and Drive services with provided OAuth token data."""
     creds = Credentials(
@@ -99,24 +117,27 @@ def process_video(input_path, output_path, job_data):
     watermark_text = job_data.get("watermark_text") or channel_handle
     
     # Extract typographical configurations
-    font_size = job_data.get("watermark_font_size", 36)
-    font_color = job_data.get("watermark_font_color", "#FFFFFF").lstrip('#')
-    opacity = job_data.get("watermark_opacity", 0.85)
-    font_family = job_data.get("watermark_font_family", "Inter")
-    w_padding = job_data.get("watermark_padding", 4)
+    font_size = job_data.get("watermark_font_size") or 36
+    font_color = (job_data.get("watermark_font_color") or "#FFFFFF").lstrip('#')
+    opacity = job_data.get("watermark_opacity") or 0.85
+    font_family = job_data.get("watermark_font_family") or "Inter"
+    w_padding = job_data.get("watermark_padding") or 4
     # Note: border_radius is not natively supported by ffmpeg drawtext box; we rely on padding.
 
-    bg_enabled = job_data.get("watermark_bg_enabled", 0)
-    bg_color = job_data.get("watermark_bg_color", "#000000").lstrip('#')
-    bg_opacity = job_data.get("watermark_bg_opacity", 0.40)
+    bg_enabled = job_data.get("watermark_bg_enabled")
+    if bg_enabled is None: bg_enabled = 0
+    bg_color = (job_data.get("watermark_bg_color") or "#000000").lstrip('#')
+    bg_opacity = job_data.get("watermark_bg_opacity") or 0.40
     
     # Exact mathematical centering for x=0.5 and y=0.5, else absolute pixels mapped to 1080x1920
-    x_val = job_data.get("watermark_x", 0.065)
-    y_val = job_data.get("watermark_y", 0.145)
+    x_val = job_data.get("watermark_x") if job_data.get("watermark_x") is not None else 0.065
+    y_val = job_data.get("watermark_y") if job_data.get("watermark_y") is not None else 0.145
     x_pos = "(w-text_w)/2" if abs(x_val - 0.5) < 0.01 else str(int(1080 * x_val))
     y_pos = "(h-text_h)/2" if abs(y_val - 0.5) < 0.01 else str(int(1920 * y_val))
 
     box_str = f"box=1:boxcolor=0x{bg_color}@{bg_opacity}:boxborderw={w_padding}" if bg_enabled else "box=0"
+    
+    font_path = f"/tmp/fonts/{font_family.replace(' ', '')}.ttf"
     
     # 1.02x speed shift (setpts=0.98*PTS)
     # Micro-contrast (eq=contrast=1.05:brightness=-0.02)
@@ -124,7 +145,7 @@ def process_video(input_path, output_path, job_data):
         "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,setsar=1,setdar=9/16,"
         "setpts=0.98*PTS,"
         "eq=contrast=1.05:brightness=-0.02,"
-        f"drawtext=text='{watermark_text}':font='{font_family}':fontcolor=0x{font_color}@{opacity}:fontsize={font_size}:x={x_pos}:y={y_pos}:{box_str}"
+        f"drawtext=text='{watermark_text}':fontfile='{font_path}':fontcolor=0x{font_color}@{opacity}:fontsize={font_size}:x={x_pos}:y={y_pos}:{box_str}"
     )
     
     # Audio speed shift to match 1.02x video
@@ -271,5 +292,6 @@ def main_loop():
             time.sleep(30)
 
 if __name__ == "__main__":
+    ensure_fonts()
     print("Starting ReelNexus Colab Worker with Quota Protection & Backups...")
     main_loop()
