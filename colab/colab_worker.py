@@ -199,9 +199,9 @@ def upload_to_youtube(youtube, video_path, metadata, schedule_data):
     print(f"⬆️ Uploading to YouTube. Scheduled for: {publish_at_rfc3339}")
     body = {
         "snippet": {
-            "title": metadata.get("ai_title", "Untitled Short") + " #Shorts",
-            "description": metadata.get("ai_description", ""),
-            "tags": metadata.get("ai_tags", "").split(","),
+            "title": (metadata.get("ai_title") or "Untitled Short") + " #Shorts",
+            "description": metadata.get("ai_description") or "",
+            "tags": (metadata.get("ai_tags") or "").split(","),
             "categoryId": "22"
         },
         "status": {
