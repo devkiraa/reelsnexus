@@ -668,12 +668,46 @@ app.delete('/api/jobs/:id', async (c) => {
 app.post('/api/jobs/:id/publish-now', async (c) => {
   const id = c.req.param('id');
   
-  // We mock the actual publish trigger for now, simply changing the status to PUBLISHED 
-  // In a real scenario, this might trigger a Cloudflare Queue message to instantly upload.
-  const result = await c.env.DB.prepare(`UPDATE render_jobs SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'READY_TO_POST'`).bind(id).run();
+  const job = await c.env.DB.prepare(`SELECT * FROM render_jobs WHERE id = ?`).bind(id).first();
+  if (!job || !job.youtube_video_id) return c.json({ error: 'Job not found or missing youtube_video_id' }, 404);
+  
+  const channel = await c.env.DB.prepare(`SELECT youtube_access_token FROM channels WHERE id = ?`).bind(job.channel_id).first();
+  if (!channel || !channel.youtube_access_token) return c.json({ error: 'Channel YouTube token missing' }, 400);
+
+  // Call YouTube API to update privacy status to public
+  const ytBody = {
+    id: job.youtube_video_id,
+    snippet: {
+      title: job.ai_title || "Untitled",
+      description: job.ai_description || "",
+      tags: job.ai_tags ? (job.ai_tags as string).split(',') : [],
+      categoryId: "22"
+    },
+    status: {
+      privacyStatus: 'public',
+      selfDeclaredMadeForKids: false
+    }
+  };
+
+  const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${channel.youtube_access_token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(ytBody)
+  });
+
+  if (!ytRes.ok) {
+    const err = await ytRes.text();
+    console.error("YouTube Publish Now Failed", err);
+    return c.json({ error: 'Failed to publish YouTube video', details: err }, 500);
+  }
+
+  const result = await c.env.DB.prepare(`UPDATE render_jobs SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(id).run();
 
   if (result.meta.changes === 0) {
-    return c.json({ error: 'Job not found or not in READY_TO_POST state.' }, 400);
+    return c.json({ error: 'Failed to update job status.' }, 500);
   }
   
   return c.json({ success: true, status: 'PUBLISHED' });
