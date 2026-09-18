@@ -253,15 +253,15 @@ def main_loop():
                 publish_utc = None
                 
                 if job.get("youtube_token_data"):
-                    youtube, drive_service = get_google_services(job["youtube_token_data"])
+                    youtube, _ = get_google_services(job["youtube_token_data"])
                     
                     target_path = job.get("target_drive_folder_path")
-                    if target_path:
+                    if target_path and job.get("master_drive_token_data"):
                         print(f"Creating/getting Drive structure: {target_path}")
-                        folder_id = get_or_create_drive_folder(drive_service, target_path)
+                        folder_id = get_or_create_drive_folder(master_drive, target_path)
                         print("Uploading backup to Drive...")
-                        upload_to_drive(drive_service, out_vid, folder_id, 'video/mp4')
-                        upload_to_drive(drive_service, out_frame, folder_id, 'image/jpeg')
+                        upload_to_drive(master_drive, out_vid, folder_id, 'video/mp4')
+                        upload_to_drive(master_drive, out_frame, folder_id, 'image/jpeg')
                     
                     # Ensure Quota protection
                     schedule_data = get_channel_schedule(job["channel_id"])
