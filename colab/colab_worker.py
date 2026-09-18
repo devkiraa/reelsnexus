@@ -162,7 +162,7 @@ def process_video(input_path, output_path, job_data):
     # Extract keyframe at exactly 1.5 seconds
     frame_path = output_path.replace('.mp4', '_frame.jpg')
     print(f"Extracting keyframe to {frame_path}...")
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-ss", "00:00:01.500", "-i", output_path, "-vframes", "1", "-q:v", "2", frame_path])
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-ss", "00:00:01.500", "-i", output_path, "-vframes", "1", "-q:v", "2", "-update", "1", frame_path])
     
     return output_path, frame_path
 
