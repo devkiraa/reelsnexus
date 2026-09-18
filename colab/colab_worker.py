@@ -120,7 +120,7 @@ def process_video(input_path, output_path, job_data):
     # 1.02x speed shift (setpts=0.98*PTS)
     # Micro-contrast (eq=contrast=1.05:brightness=-0.02)
     vf_chain = (
-        "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,"
+        "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920,setsar=1,setdar=9/16,"
         "setpts=0.98*PTS,"
         "eq=contrast=1.05:brightness=-0.02,"
         f"drawtext=text='{watermark_text}':font='{font_family}':fontcolor=0x{font_color}@{opacity}:fontsize={font_size}:x={x_pos}:y={y_pos}:{box_str}"
