@@ -29,11 +29,7 @@ def get_google_services(token_data):
         refresh_token=token_data.get("refresh_token"),
         token_uri="https://oauth2.googleapis.com/token",
         client_id=token_data.get("client_id"),
-        client_secret=token_data.get("client_secret"),
-        scopes=[
-            "https://www.googleapis.com/auth/youtube.upload",
-            "https://www.googleapis.com/auth/drive.file"
-        ]
+        client_secret=token_data.get("client_secret")
     )
     
     if not creds.valid:
