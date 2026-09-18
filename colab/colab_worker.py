@@ -77,7 +77,7 @@ def complete_job(job_id, youtube_video_id=None, publish_utc=None, keyframe_base6
         'youtube_scheduled_publish_utc': publish_utc,
         'keyframe_base64': keyframe_base64,
         'niche': niche,
-        'status': 'SCHEDULED' if youtube_video_id else 'READY_TO_POST'
+        'status': 'READY_FOR_REVIEW'
     }
     requests.post(f"{API_BASE_URL}/api/jobs/complete", headers=headers, json=payload)
 
@@ -190,14 +190,7 @@ def upload_to_youtube(youtube, video_path, metadata, schedule_data):
         print("⚠️ Quota limit reached (5 uploads per 24h). Delaying upload.")
         return None, None
 
-    latest_dt = datetime.fromisoformat(schedule_data["latest_scheduled_utc"].replace("Z", "+00:00"))
-    now = datetime.now(timezone.utc)
-    
-    # 4-hour spacing
-    target_dt = max(now + timedelta(hours=4), latest_dt + timedelta(hours=4))
-    publish_at_rfc3339 = target_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    
-    print(f"⬆️ Uploading to YouTube. Scheduled for: {publish_at_rfc3339}")
+    print(f"⬆️ Uploading to YouTube as Unlisted for Review...")
     body = {
         "snippet": {
             "title": (metadata.get("ai_title") or "Untitled Short") + " #Shorts",
@@ -206,8 +199,7 @@ def upload_to_youtube(youtube, video_path, metadata, schedule_data):
             "categoryId": "22"
         },
         "status": {
-            "privacyStatus": "private", 
-            "publishAt": publish_at_rfc3339,
+            "privacyStatus": "unlisted",
             "selfDeclaredMadeForKids": False
         }
     }
@@ -225,8 +217,8 @@ def upload_to_youtube(youtube, video_path, metadata, schedule_data):
         if status:
             print(f"   ... {int(status.progress() * 100)}%")
             
-    print(f"✅ YouTube Upload sukses. Video ID: {response['id']}")
-    return response['id'], publish_at_rfc3339
+    print(f"✅ YouTube Upload sukses (Unlisted). Video ID: {response['id']}")
+    return response['id'], None
 
 def main_loop():
     while True:

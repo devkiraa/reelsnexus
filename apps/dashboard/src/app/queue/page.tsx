@@ -317,7 +317,7 @@ export default function QueuePage() {
                           <div className="text-sm font-bold text-gray-900">{job.file_name}</div>
                           <div className="text-xs text-gray-500 mt-1 uppercase font-medium tracking-wider flex items-center">
                             <Clock className="w-3.5 h-3.5 mr-1" />
-                            {isScheduled ? 'Scheduled:' : 'Added:'} {scheduleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {isScheduled ? 'Scheduled:' : 'Added:'} {scheduleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (IST)
                           </div>
                         </div>
                       </div>
@@ -418,6 +418,140 @@ export default function QueuePage() {
             >
               <Trash className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Review & Approve Modal */}
+      {modalJob && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/70 p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center">
+                <AlertTriangle className="w-5 h-5 text-orange-500 mr-2" />
+                Review Video & Metadata
+              </h2>
+              <button onClick={() => setModalJob(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+              {/* Left Column: Preview */}
+              <div className="w-full md:w-5/12 bg-gray-900 flex flex-col justify-center items-center p-6 relative">
+                {modalJob.youtube_video_id ? (
+                  <div className="w-full aspect-[9/16] max-h-full max-w-[320px] bg-black rounded-xl overflow-hidden shadow-2xl relative ring-1 ring-gray-700">
+                    <iframe 
+                      src={`https://www.youtube.com/embed/${modalJob.youtube_video_id}?autoplay=1&mute=1&loop=1&playlist=${modalJob.youtube_video_id}`}
+                      className="absolute inset-0 w-full h-full border-0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    ></iframe>
+                  </div>
+                ) : (
+                  <div className="text-center text-gray-400 p-8">
+                    <FileVideo className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <p>No preview available for this clip.</p>
+                  </div>
+                )}
+                
+                <div className="mt-6 flex items-center space-x-2 text-sm text-gray-300 bg-gray-800/80 px-4 py-2 rounded-lg">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                  <span>Unlisted on YouTube</span>
+                </div>
+              </div>
+
+              {/* Right Column: Metadata Form */}
+              <div className="w-full md:w-7/12 p-8 overflow-y-auto bg-white">
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-900 mb-1.5">YouTube Title</label>
+                    <input 
+                      type="text" 
+                      value={modalJob.ai_title || ''}
+                      onChange={e => setModalJob({ ...modalJob, ai_title: e.target.value })}
+                      className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm py-2.5 px-3"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Keep it punchy. Hashtags in title boost Shorts visibility.</p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-900 mb-1.5">Description (with DMCA footer)</label>
+                    <textarea 
+                      rows={6}
+                      value={modalJob.ai_description || ''}
+                      onChange={e => setModalJob({ ...modalJob, ai_description: e.target.value })}
+                      className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm py-2.5 px-3"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-900 mb-1.5">Tags (comma separated)</label>
+                    <input 
+                      type="text" 
+                      value={modalJob.ai_tags || ''}
+                      onChange={e => setModalJob({ ...modalJob, ai_tags: e.target.value })}
+                      className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm py-2.5 px-3"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-5 bg-gray-50 border-t border-gray-200 flex items-center justify-between mt-auto shrink-0">
+              <button 
+                onClick={() => setModalJob(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-sm"
+              >
+                Cancel
+              </button>
+              <div className="flex space-x-3">
+                <button 
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`${API_BASE}/api/jobs/${modalJob.id}/approve`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...modalJob, publish_now: false })
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      toast.success('Video Scheduled!');
+                      setModalJob(null);
+                      fetchJobs();
+                    } catch (e: any) {
+                      toast.error(e.message);
+                    }
+                  }}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm flex items-center"
+                >
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Approve & Schedule
+                </button>
+                <button 
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`${API_BASE}/api/jobs/${modalJob.id}/approve`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...modalJob, publish_now: true })
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      toast.success('Video Published to YouTube!');
+                      setModalJob(null);
+                      fetchJobs();
+                    } catch (e: any) {
+                      toast.error(e.message);
+                    }
+                  }}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm flex items-center"
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  Publish Publicly Now
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

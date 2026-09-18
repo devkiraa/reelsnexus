@@ -754,6 +754,7 @@ app.post('/api/jobs/complete', async (c) => {
   const body = await c.req.json();
   const jobId = body.job_id;
   const newStatus = body.status || 'READY_FOR_REVIEW';
+  const youtubeVideoId = body.youtube_video_id;
   const imageBase64 = body.keyframe_base64;
   
   const job = await c.env.DB.prepare(`SELECT channel_id FROM render_jobs WHERE id = ?`).bind(jobId).first();
@@ -796,29 +797,87 @@ app.post('/api/jobs/complete', async (c) => {
       status = ?, 
       ai_title = ?, 
       ai_description = ?, 
-      ai_tags = ?
+      ai_tags = ?,
+      youtube_video_id = COALESCE(?, youtube_video_id)
     WHERE id = ?`
-  ).bind(newStatus, aiTitle, aiDescription, aiTags, jobId).run();
+  ).bind(newStatus, aiTitle, aiDescription, aiTags, youtubeVideoId, jobId).run();
 
   return c.json({ success: true });
 });
+
+function getNextUSPeakSlot(latestScheduled: string | null): Date {
+  const peakHoursUTC = [2, 14, 18, 22]; // 10 PM EST, 10 AM EST, 2 PM EST, 6 PM EST
+  let baseDate = latestScheduled ? new Date(latestScheduled) : new Date();
+  
+  // Start searching from 1 hour after the base date to ensure spacing
+  baseDate = new Date(baseDate.getTime() + 60 * 60 * 1000);
+  
+  while (true) {
+    if (peakHoursUTC.includes(baseDate.getUTCHours()) && baseDate.getUTCMinutes() === 0) {
+      return baseDate;
+    }
+    // Increment by 1 hour
+    baseDate.setUTCHours(baseDate.getUTCHours() + 1, 0, 0, 0);
+  }
+}
 
 app.post('/api/jobs/:id/approve', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
   
-  // Smart scheduling logic (simplified for immediate review -> SCHEDULED)
-  // Calculate a peak slot, e.g., next 6:00 PM in channel's timezone.
-  // For now, we'll just assign it to `SCHEDULED` and mock the slot.
-  const futureSlot = new Date();
-  futureSlot.setHours(18, 0, 0, 0);
-  if (futureSlot <= new Date()) {
-    futureSlot.setDate(futureSlot.getDate() + 1);
+  const job = await c.env.DB.prepare(`SELECT channel_id, youtube_video_id FROM render_jobs WHERE id = ?`).bind(id).first();
+  if (!job || !job.youtube_video_id) return c.json({ error: 'Job not found or missing youtube_video_id' }, 404);
+  
+  const channel = await c.env.DB.prepare(`SELECT youtube_access_token FROM channels WHERE id = ?`).bind(job.channel_id).first();
+  if (!channel || !channel.youtube_access_token) return c.json({ error: 'Channel YouTube token missing' }, 400);
+  const latestJob = await c.env.DB.prepare(
+    `SELECT scheduled_slot FROM render_jobs 
+     WHERE channel_id = ? AND status = 'SCHEDULED' 
+     ORDER BY scheduled_slot DESC LIMIT 1`
+  ).bind(job.channel_id).first();
+
+  const futureSlot = getNextUSPeakSlot(latestJob?.scheduled_slot as string | null);
+  
+  const publishNow = body.publish_now === true;
+  const newStatus = publishNow ? 'PUBLISHED' : 'SCHEDULED';
+  
+  // Call YouTube API to update privacy status and snippet
+  const ytBody = {
+    id: job.youtube_video_id,
+    snippet: {
+      title: body.ai_title,
+      description: body.ai_description,
+      tags: body.ai_tags ? body.ai_tags.split(',') : [],
+      categoryId: "22"
+    },
+    status: {
+      privacyStatus: publishNow ? 'public' : 'private',
+      selfDeclaredMadeForKids: false
+    }
+  };
+  
+  if (!publishNow) {
+    (ytBody.status as any).publishAt = futureSlot.toISOString();
+  }
+
+  const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${channel.youtube_access_token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(ytBody)
+  });
+
+  if (!ytRes.ok) {
+    const err = await ytRes.text();
+    console.error("YouTube Update Failed", err);
+    return c.json({ error: 'Failed to update YouTube video', details: err }, 500);
   }
 
   const result = await c.env.DB.prepare(
     `UPDATE render_jobs SET 
-      status = 'SCHEDULED', 
+      status = ?, 
       is_reviewed = 1, 
       approved_at = CURRENT_TIMESTAMP, 
       scheduled_slot = ?, 
@@ -827,6 +886,7 @@ app.post('/api/jobs/:id/approve', async (c) => {
       ai_tags = ? 
     WHERE id = ? AND status = 'READY_FOR_REVIEW'`
   ).bind(
+    newStatus,
     futureSlot.toISOString(), 
     body.ai_title, 
     body.ai_description, 
@@ -838,7 +898,7 @@ app.post('/api/jobs/:id/approve', async (c) => {
     return c.json({ error: 'Job not found or not in READY_FOR_REVIEW state.' }, 400);
   }
   
-  return c.json({ success: true, status: 'SCHEDULED', scheduled_slot: futureSlot.toISOString() });
+  return c.json({ success: true, status: newStatus, scheduled_slot: futureSlot.toISOString() });
 });
 
 export default {
