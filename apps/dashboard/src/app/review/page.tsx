@@ -23,11 +23,14 @@ export default function ReviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'READY_FOR_REVIEW' | 'SCHEDULED' | 'PUBLISHED'>('READY_FOR_REVIEW');
   const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
+  const [isBatchApproving, setIsBatchApproving] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(0);
 
   const [reauthNeeded, setReauthNeeded] = useState(false);
 
   // Metadata form state
   const [aiTitle, setAiTitle] = useState('');
+  const [aiTitleVariants, setAiTitleVariants] = useState<string[]>([]);
   const [aiDescription, setAiDescription] = useState('');
   const [aiTags, setAiTags] = useState('');
 
@@ -76,9 +79,10 @@ export default function ReviewPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate AI metadata');
 
-      setAiTitle(data.title || '');
-      setAiDescription(data.description || '');
-      setAiTags(data.tags || '');
+      setAiTitle(data.ai_title || data.title || '');
+      setAiTitleVariants(data.ai_title_variants || []);
+      setAiDescription(data.ai_description || data.description || '');
+      setAiTags(data.ai_tags || data.tags || '');
       toast.success('Generated viral title & description!');
     } catch (e: any) {
       console.error(e);
@@ -93,6 +97,16 @@ export default function ReviewPage() {
     setAiTitle(job.ai_title || '');
     setAiDescription(job.ai_description || '');
     setAiTags(job.ai_tags || '');
+
+    let parsedVariants: string[] = [];
+    try {
+      if (job.ai_title_variants) {
+        parsedVariants = typeof job.ai_title_variants === 'string' 
+          ? JSON.parse(job.ai_title_variants) 
+          : job.ai_title_variants;
+      }
+    } catch (e) {}
+    setAiTitleVariants(parsedVariants);
 
     // Auto-generate if job still has placeholder title or empty
     if (!job.ai_title || job.ai_title === 'Generated Hook Title 🔥') {
@@ -156,6 +170,49 @@ export default function ReviewPage() {
     }
   };
 
+  const handleApproveAll = async () => {
+    if (jobs.length === 0) return;
+    if (!confirm(`Are you sure you want to schedule all ${jobs.length} videos for peak slots?`)) return;
+
+    setIsBatchApproving(true);
+    setBatchProgress(0);
+    let successCount = 0;
+    
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      try {
+        const res = await fetch(`${API_BASE}/api/jobs/${job.id}/approve`, {
+          method: 'POST',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            ai_title: job.ai_title || "Shorts Video",
+            ai_description: job.ai_description || "",
+            ai_tags: job.ai_tags || "",
+            publish_now: false
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+           if (res.status === 403 || data.error === 'YOUTUBE_REAUTH_REQUIRED') {
+             setReauthNeeded(true);
+             toast.error('YouTube reauth needed during batch process!');
+             break;
+           }
+           console.error(`Failed job ${job.id}:`, data.error);
+        } else {
+           successCount++;
+        }
+      } catch (e) {
+        console.error(`Error on job ${job.id}:`, e);
+      }
+      setBatchProgress(i + 1);
+    }
+    
+    setIsBatchApproving(false);
+    toast.success(`Batch completed: Scheduled ${successCount} out of ${jobs.length} videos!`);
+    await fetchJobs();
+  };
+
   const handleDelete = async () => {
     if (!selectedJob) return;
     if (!confirm(`Are you sure you want to delete ${selectedJob.file_name}?`)) return;
@@ -216,6 +273,17 @@ export default function ReviewPage() {
             <RefreshCw className="w-3.5 h-3.5 text-gray-500" />
             <span>Reconnect Permissions</span>
           </button>
+
+          {activeTab === 'READY_FOR_REVIEW' && jobs.length > 0 && (
+            <button
+              onClick={handleApproveAll}
+              disabled={isBatchApproving}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors shrink-0 disabled:opacity-50"
+            >
+              <CheckCircle2 className={`w-3.5 h-3.5 ${isBatchApproving ? 'animate-spin' : ''}`} />
+              <span>{isBatchApproving ? `Approving ${batchProgress}/${jobs.length}...` : 'Approve All'}</span>
+            </button>
+          )}
 
           {/* Tab Toggle */}
           <div className="flex bg-gray-100 p-1 rounded-xl overflow-x-auto scrollbar-none max-w-full">
@@ -441,7 +509,22 @@ export default function ReviewPage() {
                         placeholder="Enter engaging curiosity-driven title ending with #Shorts"
                         className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm py-2.5 px-3"
                       />
-                      <p className="mt-1 text-xs text-gray-500">
+                      {aiTitleVariants && aiTitleVariants.length > 0 && (
+                        <div className="mt-2 flex flex-col gap-1.5">
+                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Variants (Click to select)</span>
+                          {aiTitleVariants.map((variant, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setAiTitle(variant)}
+                              className={`text-left text-sm py-1.5 px-3 rounded-md border transition-colors ${aiTitle === variant ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                            >
+                              {variant}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <p className="mt-1.5 text-xs text-gray-500">
                         Hook titles with emojis and high-density keywords rank faster on the Shorts shelf.
                       </p>
                     </div>

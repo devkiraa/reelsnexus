@@ -190,7 +190,7 @@ async function generateVideoMetadata(env: Env, fileName: string, niche: string, 
 
       const prompt = `Analyze this video keyframe. Trending keywords: ${JSON.stringify(trendingKeywords)}.
 Generate YouTube Shorts metadata formatted strictly as JSON with keys:
-"title": Curiosity-driven title under 55 characters ending with #Shorts.
+"titles": Array of 3 distinct, curiosity-driven titles under 55 characters ending with #Shorts.
 "description": 2-3 engaging SEO sentences.
 "tags": Array of 5-8 hashtags.`;
 
@@ -204,7 +204,13 @@ Generate YouTube Shorts metadata formatted strictly as JSON with keys:
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.title) return parsed;
+        if (parsed.titles && parsed.titles.length > 0) {
+          parsed.title = parsed.titles[0];
+          return parsed;
+        } else if (parsed.title) {
+          parsed.titles = [parsed.title, parsed.title, parsed.title];
+          return parsed;
+        }
       }
     } catch (e) {
       console.warn('Vision metadata generation failed, attempting text LLM:', e);
@@ -226,13 +232,13 @@ Respond strictly in valid JSON format with no additional text or Markdown wrappi
 - Trending terms: ${JSON.stringify(trendingKeywords)}
 
 Formatting requirements:
-1. "title": Punchy, curiosity-driven title under 55 characters ending with #Shorts. Put the main promise or question first.
+1. "titles": Array of 3 distinct, punchy, curiosity-driven titles under 55 characters ending with #Shorts. Put the main promise or question first.
 2. "description": 2-3 clean, engaging sentences with natural SEO terms. No excessive hashtag walls.
 3. "tags": 5-8 relevant topic keywords and genuine spelling variations (e.g. ["shorts", "${niche.toLowerCase().replace(/[^a-z0-9]/g, '')}", "wealth", "mindset", "success"]).
 
 Return pure JSON:
 {
-  "title": "Title here #Shorts",
+  "titles": ["Title 1 #Shorts", "Title 2 #Shorts", "Title 3 #Shorts"],
   "description": "Description here",
   "tags": ["tag1", "tag2"]
 }`;
@@ -248,10 +254,18 @@ Return pure JSON:
 
     const content = aiRes?.response || '';
     const jsonMatch = content.match(/\{[\s\S]*\}/);
+    let parsed: any = null;
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      parsed = JSON.parse(jsonMatch[0]);
+    } else {
+      parsed = JSON.parse(content);
     }
-    return JSON.parse(content);
+    if (parsed.titles && parsed.titles.length > 0) {
+      parsed.title = parsed.titles[0];
+    } else if (parsed.title) {
+      parsed.titles = [parsed.title, parsed.title, parsed.title];
+    }
+    return parsed;
   } catch (e: any) {
     console.error('Text metadata generation failed:', e);
     // 3. Dynamic procedural fallback with unique viral hooks
@@ -273,6 +287,11 @@ Return pure JSON:
     const randomHook = hooks[Math.floor(Math.random() * hooks.length)];
     return {
       title: `${randomHook} | ${niche} #Shorts`,
+      titles: [
+        `${randomHook} | ${niche} #Shorts`,
+        `${hooks[Math.floor(Math.random() * hooks.length)]} | ${niche} #Shorts`,
+        `${hooks[Math.floor(Math.random() * hooks.length)]} | ${niche} #Shorts`
+      ],
       description: `Watch this unforgettable clip! Subscribe for more daily ${niche} Shorts, insights, and inspiration.\n\n#shorts #${niche.toLowerCase().replace(/[^a-z0-9]/g, '')} #viral #trending`,
       tags: ["shorts", "viral", niche.toLowerCase().replace(/[^a-z0-9]/g, ''), "trending", "explore", "reels"]
     };
@@ -1150,6 +1169,48 @@ app.get('/api/channels/:id/scheduled', async (c) => {
   });
 });
 
+// --- Analytics Endpoint ---
+
+app.get('/api/analytics', async (c) => {
+  const channelId = c.req.query('channel_id');
+  if (!channelId) return c.json({ error: 'Missing channel_id' }, 400);
+
+  try {
+    const timelineQuery = `
+      SELECT DATE(m.recorded_at) as date, SUM(m.views) as total_views, SUM(m.likes) as total_likes
+      FROM video_metrics m
+      JOIN render_jobs r ON m.render_job_id = r.id
+      WHERE r.channel_id = ?
+      GROUP BY date
+      ORDER BY date ASC
+    `;
+
+    const latestMetricsQuery = `
+      SELECT r.file_name, r.ai_title, MAX(m.views) as views, MAX(m.likes) as likes, MAX(m.comments) as comments
+      FROM video_metrics m
+      JOIN render_jobs r ON m.render_job_id = r.id
+      WHERE r.channel_id = ?
+      GROUP BY m.render_job_id
+      ORDER BY views DESC
+      LIMIT 10
+    `;
+
+    const [timeline, topVideos] = await Promise.all([
+      c.env.DB.prepare(timelineQuery).bind(channelId).all(),
+      c.env.DB.prepare(latestMetricsQuery).bind(channelId).all()
+    ]);
+
+    return c.json({
+      success: true,
+      timeline: timeline.results,
+      topVideos: topVideos.results
+    });
+  } catch (e: any) {
+    console.error('Analytics fetch failed', e);
+    return c.json({ error: 'Failed to fetch analytics', details: e.message }, 500);
+  }
+});
+
 // --- Jobs Endpoints ---
 
 app.get('/api/jobs', async (c) => {
@@ -1471,13 +1532,16 @@ app.post('/api/jobs/:id/generate-metadata', async (c) => {
     description += dmcaBlock;
   }
 
+  const titlesStr = meta.titles ? JSON.stringify(meta.titles) : JSON.stringify([title]);
+
   await c.env.DB.prepare(
-    `UPDATE render_jobs SET ai_title = ?, ai_description = ?, ai_tags = ? WHERE id = ?`
-  ).bind(title, description, tags, id).run();
+    `UPDATE render_jobs SET ai_title = ?, ai_description = ?, ai_tags = ?, ai_title_variants = ? WHERE id = ?`
+  ).bind(title, description, tags, titlesStr, id).run();
 
   return c.json({
     success: true,
     ai_title: title,
+    ai_title_variants: meta.titles || [title],
     ai_description: description,
     ai_tags: tags,
     error_debug: (meta as any).error_debug
@@ -1494,28 +1558,46 @@ function isUSDaylightSaving(d: Date): boolean {
   return true;
 }
 
-function getNextUSPeakSlot(latestScheduled: string | null): Date {
+async function getNextUSPeakSlot(env: any, channelId: string, latestScheduled: string | null): Promise<Date> {
   const now = new Date();
   let minStart = latestScheduled ? new Date(latestScheduled) : now;
   // Space out each Short by at least 3 hours, and at least 30 minutes from now
   minStart = new Date(Math.max(now.getTime() + 30 * 60 * 1000, minStart.getTime() + 3 * 60 * 60 * 1000));
 
+  let customTargetSlotsUTC: {h: number, m: number}[] = [];
+
+  // Try to find peak engagement hours from metrics
+  try {
+    const peakHours = await env.DB.prepare(
+      `SELECT cast(strftime('%H', m.recorded_at) as integer) as hour, SUM(m.views) as total_views 
+       FROM video_metrics m
+       JOIN render_jobs r ON m.render_job_id = r.id
+       WHERE r.channel_id = ?
+       GROUP BY hour
+       HAVING total_views > 100
+       ORDER BY total_views DESC
+       LIMIT 4`
+    ).bind(channelId).all();
+
+    if (peakHours.results && peakHours.results.length > 0) {
+      customTargetSlotsUTC = peakHours.results.map((row: any) => ({ h: row.hour, m: 0 }));
+    }
+  } catch (e) {
+    console.warn('Failed to calculate smart slots, using default', e);
+  }
+
   for (let dayOffset = 0; dayOffset < 30; dayOffset++) {
     const candidateDay = new Date(minStart.getTime() + dayOffset * 24 * 60 * 60 * 1000);
     const isDst = isUSDaylightSaving(candidateDay);
-
-    // Tested IST slots targeting high-viewership US timezones:
-    // 1. 10:30 PM IST (1:00 PM EDT / 10:00 AM PDT) -> 17:00 UTC
-    // 2. 12:30 AM IST (3:00 PM EDT / 12:00 PM PDT cross-coast peak) -> 19:00 UTC
-    // 3. 2:00 AM IST (4:30 PM EDT / 1:30 PM PDT) -> 20:30 UTC
-    // 4. 8:00 AM IST (10:30 PM EDT / 7:30 PM PDT West Coast evening) -> 02:30 UTC
     const baseHourOffset = isDst ? 0 : 1;
-    const targetSlotsUTC = [
+    
+    let targetSlotsUTC = customTargetSlotsUTC.length > 0 ? customTargetSlotsUTC : [
       { h: (2 + baseHourOffset) % 24, m: 30 },
       { h: (17 + baseHourOffset) % 24, m: 0 },
       { h: (19 + baseHourOffset) % 24, m: 0 },
       { h: (20 + baseHourOffset) % 24, m: 30 }
-    ].sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m));
+    ];
+    targetSlotsUTC = targetSlotsUTC.sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m));
 
     for (const slot of targetSlotsUTC) {
       const slotDate = new Date(Date.UTC(
@@ -1556,7 +1638,7 @@ app.post('/api/jobs/:id/approve', async (c) => {
      ORDER BY scheduled_slot DESC LIMIT 1`
   ).bind(job.channel_id).first();
 
-  const futureSlot = getNextUSPeakSlot(latestJob?.scheduled_slot as string | null);
+  const futureSlot = await getNextUSPeakSlot(c.env, job.channel_id, latestJob?.scheduled_slot as string | null);
   
   const publishNow = body.publish_now === true;
   const newStatus = publishNow ? 'PUBLISHED' : 'SCHEDULED';
@@ -1695,6 +1777,45 @@ export default {
           console.error(`Error publishing scheduled job ${job.id}:`, jobErr);
         }
       }
+      // 2. Fetch Analytics for published jobs
+      const publishedJobs = await env.DB.prepare(
+        `SELECT r.*, c.youtube_refresh_token 
+         FROM render_jobs r
+         JOIN channels c ON r.channel_id = c.id
+         WHERE r.status = 'PUBLISHED' 
+           AND r.youtube_video_id IS NOT NULL
+         ORDER BY r.published_at DESC LIMIT 50`
+      ).all();
+
+      for (const job of (publishedJobs.results || [])) {
+        if (!job.youtube_refresh_token) continue;
+        try {
+          const accessToken = await getGoogleAccessToken(env, job.youtube_refresh_token);
+          if (!accessToken) continue;
+
+          const ytRes = await fetch(`https://youtube.googleapis.com/youtube/v3/videos?part=statistics&id=${job.youtube_video_id}`, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Accept': 'application/json'
+            }
+          });
+          
+          if (ytRes.ok) {
+            const data: any = await ytRes.json();
+            const stats = data.items?.[0]?.statistics;
+            if (stats) {
+              const id = crypto.randomUUID();
+              await env.DB.prepare(
+                `INSERT INTO video_metrics (id, render_job_id, views, likes, comments)
+                 VALUES (?, ?, ?, ?, ?)`
+              ).bind(id, job.id, parseInt(stats.viewCount || '0'), parseInt(stats.likeCount || '0'), parseInt(stats.commentCount || '0')).run();
+            }
+          }
+        } catch (jobErr) {
+          console.error(`Error fetching analytics for ${job.id}:`, jobErr);
+        }
+      }
+
     } catch (e) {
       console.error("Scheduled cron failed:", e);
     }

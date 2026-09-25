@@ -320,6 +320,13 @@ export function SidebarInner({ onClose }: { onClose?: () => void }) {
           Queue
         </a>
         <a 
+          href="/analytics" 
+          onClick={onClose}
+          className="block px-4 py-2.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors font-medium text-sm text-gray-700"
+        >
+          Analytics
+        </a>
+        <a 
           href="/review" 
           onClick={onClose}
           className="flex items-center justify-between px-4 py-2.5 rounded-lg hover:bg-orange-50 hover:text-orange-600 focus-visible:ring-2 focus-visible:ring-orange-500 transition-colors font-medium text-sm text-gray-700"
