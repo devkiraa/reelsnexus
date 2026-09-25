@@ -253,7 +253,7 @@ def main_loop():
                 _, master_drive = get_google_services(job["master_drive_token_data"])
                 download_from_drive(master_drive, job.get('source_file_id') or job.get('raw_drive_id'), input_path)
             else:
-                with open(input_path, 'w') as f: f.write('dummy raw video')
+                raise ValueError("Master Drive Token missing or expired. Please Reconnect Master Drive in the Dashboard.")
 
             output_path = os.path.join(tmp_dir, f"processed_{job['file_name']}")
             
