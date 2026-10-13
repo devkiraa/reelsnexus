@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const urlToken = urlParams.get('auth_token');
     const authError = urlParams.get('error');
 
-    if (authError) {
+    if (authError && (authError.startsWith('google_login_') || authError === 'auth_failed')) {
       if (authError === 'google_login_cancelled') {
         toast.error('Google login cancelled');
       } else {

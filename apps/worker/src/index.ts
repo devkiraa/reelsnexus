@@ -451,8 +451,8 @@ async function getGoogleAccessToken(env: Env, encryptedRefreshToken: string): Pr
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: env.GOOGLE_CLIENT_ID || '',
-        client_secret: env.GOOGLE_CLIENT_SECRET || '',
+        client_id: (env.GOOGLE_CLIENT_ID || '').trim(),
+        client_secret: (env.GOOGLE_CLIENT_SECRET || '').trim(),
         refresh_token: refreshToken,
         grant_type: 'refresh_token'
       }).toString()
@@ -775,36 +775,49 @@ app.get('/api/auth/drive/callback', async (c) => {
     return c.redirect(`${frontendUrl}${returnTo}?error=invalid_csrf_state`);
   }
 
-  const redirectUri = new URL('/api/auth/drive/callback', c.req.url).toString();
+  const origin = new URL(c.req.url).origin;
+  const redirectUri = `${origin}/api/auth/drive/callback`;
 
   try {
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: c.env.GOOGLE_CLIENT_ID || '',
-        client_secret: c.env.GOOGLE_CLIENT_SECRET || '',
+        client_id: (c.env.GOOGLE_CLIENT_ID || '').trim(),
+        client_secret: (c.env.GOOGLE_CLIENT_SECRET || '').trim(),
         code,
         grant_type: 'authorization_code',
         redirect_uri: redirectUri
       }).toString()
     });
 
-    if (!tokenResponse.ok) throw new Error(await tokenResponse.text());
+    if (!tokenResponse.ok) {
+      const errText = await tokenResponse.text();
+      console.error('Drive token exchange failed response:', errText);
+      throw new Error(errText);
+    }
     const data: any = await tokenResponse.json();
     
     if (data.refresh_token) {
-      const encToken = await encryptSecret(data.refresh_token, c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev');
+      const encToken = await encryptSecret(data.refresh_token, (c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev').trim());
       await c.env.DB.prepare(
         `INSERT INTO global_settings (key, value) VALUES ('master_drive_refresh_token', ?) 
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`
       ).bind(encToken).run();
+    } else {
+      console.warn('Google did not return refresh_token in response:', data);
     }
     
     return c.redirect(`${frontendUrl}${returnTo}?success=drive_connected`);
-  } catch (e) {
+  } catch (e: any) {
     console.error('Drive OAuth failed:', e);
-    return c.redirect(`${frontendUrl}${returnTo}?error=drive_token_exchange_failed`);
+    const rawMsg = e?.message || 'drive_token_exchange_failed';
+    let cleanMsg = rawMsg;
+    try {
+      const parsed = JSON.parse(rawMsg);
+      cleanMsg = parsed.error_description || parsed.error || rawMsg;
+    } catch {}
+    return c.redirect(`${frontendUrl}${returnTo}?error=${encodeURIComponent(cleanMsg)}`);
   }
 });
 
