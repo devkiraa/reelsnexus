@@ -176,7 +176,98 @@ async function getTrendingKeywords(niche: string): Promise<string[]> {
   }
 }
 
-async function generateVideoMetadata(env: Env, fileName: string, niche: string, trendingKeywords: string[], imageBase64?: string) {
+const VIRAL_RETENTION_HOOKS = [
+  "The $50M Rule Nobody Tells You",
+  "Why 99% Will Never Be Rich",
+  "The Brutal Reality of True Wealth",
+  "Is This The Ultimate Flex?",
+  "The 1 Habit That Made Him Billions",
+  "Never Make This Financial Mistake",
+  "What $100 Million Actually Looks Like",
+  "The Hardest Choice You'll Ever Face",
+  "Why The Rich Keep Getting Richer",
+  "The Real Cost of Success",
+  "Watch How Real Power Moves",
+  "Proof Anything Is Possible",
+  "Stop Trading Time for Pennies",
+  "This Will Change How You Think",
+  "The Secret Behind Ultra Wealth",
+  "What They Don't Teach in School",
+  "The 1% Wealth Mindset",
+  "Most People Learn This Too Late",
+  "The Moment Everything Changed",
+  "How To Win Before You Start",
+  "The Millionaire Trap Explained",
+  "Why Discipline Always Wins",
+  "The Power of Unmatched Standards",
+  "What True Freedom Actually Costs",
+  "The Rule That Separates Winners",
+  "How Billionaires Actually Think",
+  "The Harsh Truth About Money",
+  "Why Comfort Kills Ambition",
+  "The Dark Side of Getting Rich",
+  "Don't Waste Your 20s Doing This",
+  "The Law of Unstoppable Focus",
+  "Why Most People Stay Trapped",
+  "The Strategy Behind Empires",
+  "What It Takes To Be at The Top",
+  "The Truth Nobody Wants to Hear"
+];
+
+function getNicheSEO(niche: string) {
+  const n = (niche || '').toLowerCase();
+  if (n.includes('wealth') || n.includes('luxury') || n.includes('money') || n.includes('rich')) {
+    return {
+      tags: ["luxury", "billionaire", "wealthmindset", "success", "financialfreedom", "millionaire", "mindset", "luxurylifestyle", "rich"],
+      hashtags: "#luxury #billionaire #wealthmindset #richlifestyle",
+      summary: "Unlock the elite mindset behind extraordinary wealth, discipline, and luxury."
+    };
+  }
+  if (n.includes('fit') || n.includes('gym') || n.includes('workout')) {
+    return {
+      tags: ["fitness", "gymmotivation", "workout", "bodybuilding", "shredded", "fitnesstips", "gym", "health", "discipline"],
+      hashtags: "#fitness #gymmotivation #workout #discipline",
+      summary: "High-intensity discipline and physical performance insights."
+    };
+  }
+  if (n.includes('tech') || n.includes('ai') || n.includes('code')) {
+    return {
+      tags: ["technology", "ai", "futuretech", "techgadgets", "innovation", "artificialintelligence", "coding"],
+      hashtags: "#tech #ai #futuretech #innovation",
+      summary: "Next-generation breakthroughs in technology, innovation, and AI."
+    };
+  }
+  return {
+    tags: ["motivation", "mindset", "success", "inspiration", "dailygrowth", "focus", "discipline"],
+    hashtags: "#motivation #mindset #success #inspiration",
+    summary: "Proven insights to elevate your focus, performance, and daily life."
+  };
+}
+
+function formatMobileShortTitle(rawTitle: string): string {
+  // Strip repetitive suffix clutter like "| Luxury Lifestyle & Wealth #Shorts"
+  let clean = rawTitle
+    .replace(/\|\s*[^#\n]+#Shorts/gi, '')
+    .replace(/\|\s*[^#\n]+/gi, '')
+    .replace(/#Shorts/gi, '')
+    .trim();
+
+  // Enforce mobile viewport safety: under 42 characters
+  if (clean.length > 42) {
+    clean = clean.slice(0, 42).replace(/\s+\S*$/, '').trim();
+  }
+
+  // Append #Shorts only if space permits (under 45 total)
+  if (clean.length <= 36) {
+    return `${clean} #Shorts`;
+  }
+  return clean;
+}
+
+async function generateVideoMetadata(env: Env, fileName: string, niche: string, trendingKeywords: string[], imageBase64?: string, existingTitles: string[] = []) {
+  const nicheSEO = getNicheSEO(niche);
+  const existingSet = new Set(existingTitles.map(t => t.toLowerCase().trim()));
+
   // 1. Try Vision model if keyframe is provided
   if (imageBase64 && imageBase64.length > 50) {
     try {
@@ -188,11 +279,11 @@ async function generateVideoMetadata(env: Env, fileName: string, niche: string, 
       }
       const imageArray = Array.from(bytes);
 
-      const prompt = `Analyze this video keyframe. Trending keywords: ${JSON.stringify(trendingKeywords)}.
-Generate YouTube Shorts metadata formatted strictly as JSON with keys:
-"titles": Array of 3 distinct, curiosity-driven titles under 55 characters ending with #Shorts.
-"description": 2-3 engaging SEO sentences.
-"tags": Array of 5-8 hashtags.`;
+      const prompt = `Analyze this video keyframe for a viral YouTube Short in niche "${niche}".
+Generate strictly valid JSON:
+"titles": Array of 3 distinct, high-curiosity mobile hooks strictly UNDER 40 characters each (no generic suffix or hashtag walls).
+"description": 2 punchy, curiosity-driven sentences.
+"tags": Array of 6-8 niche keywords.`;
 
       const aiRes: any = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
         prompt,
@@ -204,12 +295,18 @@ Generate YouTube Shorts metadata formatted strictly as JSON with keys:
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.titles && parsed.titles.length > 0) {
-          parsed.title = parsed.titles[0];
-          return parsed;
-        } else if (parsed.title) {
-          parsed.titles = [parsed.title, parsed.title, parsed.title];
-          return parsed;
+        if (parsed.titles && Array.isArray(parsed.titles)) {
+          const formattedTitles = parsed.titles
+            .map((t: string) => formatMobileShortTitle(t))
+            .filter((t: string) => !existingSet.has(t.toLowerCase().trim()));
+          if (formattedTitles.length > 0) {
+            return {
+              title: formattedTitles[0],
+              titles: formattedTitles,
+              description: `${parsed.description || nicheSEO.summary}\n\n👉 Subscribe for daily elite insights.\n\n${nicheSEO.hashtags}`,
+              tags: parsed.tags && Array.isArray(parsed.tags) ? parsed.tags : nicheSEO.tags
+            };
+          }
         }
       }
     } catch (e) {
@@ -220,27 +317,21 @@ Generate YouTube Shorts metadata formatted strictly as JSON with keys:
   // 2. High-reliability Text LLM (Llama 3.2 3B Instruct)
   try {
     const cleanFileName = fileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
-    const systemPrompt = `You are an elite YouTube Shorts strategist crafting viral content specifically targeted at US audiences.
-Your goal is maximizing initial-velocity retention, viewed vs. swiped ratio, and completion rate.
-Write in natural, conversational American English. Avoid filler, buzzword clichés, or regional Indian phrasing.
-State the hook or high-stakes premise immediately in the first few words of the title.
-Respond strictly in valid JSON format with no additional text or Markdown wrapping.`;
+    const systemPrompt = `You are an elite YouTube Shorts growth strategist.
+Rules:
+1. Craft curiosity-driven mobile titles strictly UNDER 40 CHARACTERS. No buzzword clichés.
+2. The hook MUST be the first 3 words. Never append repetitive channel names or template suffixes.
+3. Respond ONLY in valid JSON.`;
 
-    const userPrompt = `Create US-targeted YouTube Shorts metadata for:
-- Video file: "${cleanFileName}"
-- Channel niche: "${niche}"
-- Trending terms: ${JSON.stringify(trendingKeywords)}
+    const userPrompt = `Create viral US YouTube Shorts metadata:
+Topic: "${cleanFileName}" | Niche: "${niche}"
+Trending: ${JSON.stringify(trendingKeywords)}
 
-Formatting requirements:
-1. "titles": Array of 3 distinct, punchy, curiosity-driven titles under 55 characters ending with #Shorts. Put the main promise or question first.
-2. "description": 2-3 clean, engaging sentences with natural SEO terms. No excessive hashtag walls.
-3. "tags": 5-8 relevant topic keywords and genuine spelling variations (e.g. ["shorts", "${niche.toLowerCase().replace(/[^a-z0-9]/g, '')}", "wealth", "mindset", "success"]).
-
-Return pure JSON:
+Return JSON:
 {
-  "titles": ["Title 1 #Shorts", "Title 2 #Shorts", "Title 3 #Shorts"],
-  "description": "Description here",
-  "tags": ["tag1", "tag2"]
+  "titles": ["Short Hook 1", "Short Hook 2", "Short Hook 3"],
+  "description": "2 sentences of high-curiosity summary.",
+  "tags": ["keyword1", "keyword2"]
 }`;
 
     const aiRes: any = await env.AI.run("@cf/meta/llama-3.2-3b-instruct", {
@@ -249,53 +340,45 @@ Return pure JSON:
         { role: "user", content: userPrompt }
       ],
       max_tokens: 512,
-      temperature: 0.75
+      temperature: 0.8
     });
 
     const content = aiRes?.response || '';
     const jsonMatch = content.match(/\{[\s\S]*\}/);
-    let parsed: any = null;
-    if (jsonMatch) {
-      parsed = JSON.parse(jsonMatch[0]);
-    } else {
-      parsed = JSON.parse(content);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+    
+    if (parsed.titles && Array.isArray(parsed.titles)) {
+      const formatted = parsed.titles
+        .map((t: string) => formatMobileShortTitle(t))
+        .filter((t: string) => !existingSet.has(t.toLowerCase().trim()));
+
+      if (formatted.length > 0) {
+        return {
+          title: formatted[0],
+          titles: formatted,
+          description: `${parsed.description || nicheSEO.summary}\n\n👉 Subscribe for daily elite insights.\n\n${nicheSEO.hashtags}`,
+          tags: parsed.tags && Array.isArray(parsed.tags) ? parsed.tags : nicheSEO.tags
+        };
+      }
     }
-    if (parsed.titles && parsed.titles.length > 0) {
-      parsed.title = parsed.titles[0];
-    } else if (parsed.title) {
-      parsed.titles = [parsed.title, parsed.title, parsed.title];
-    }
-    return parsed;
   } catch (e: any) {
-    console.error('Text metadata generation failed:', e);
-    // 3. Dynamic procedural fallback with unique viral hooks
-    const hooks = [
-      "Rule #1 Most People Ignore",
-      "The Reality of True Wealth",
-      "Would You Make This Choice?",
-      "The Mindset That Changes Everything",
-      "Is This The Ultimate Flex?",
-      "The Cost of Ambition",
-      "Secret That Changed My Life",
-      "Why 99% Fail at This",
-      "Watch Until The Very End",
-      "Never Make This Mistake",
-      "The Secret Nobody Tells You",
-      "Proof Anything Is Possible",
-      "Level Up Your Lifestyle Today"
-    ];
-    const randomHook = hooks[Math.floor(Math.random() * hooks.length)];
-    return {
-      title: `${randomHook} | ${niche} #Shorts`,
-      titles: [
-        `${randomHook} | ${niche} #Shorts`,
-        `${hooks[Math.floor(Math.random() * hooks.length)]} | ${niche} #Shorts`,
-        `${hooks[Math.floor(Math.random() * hooks.length)]} | ${niche} #Shorts`
-      ],
-      description: `Watch this unforgettable clip! Subscribe for more daily ${niche} Shorts, insights, and inspiration.\n\n#shorts #${niche.toLowerCase().replace(/[^a-z0-9]/g, '')} #viral #trending`,
-      tags: ["shorts", "viral", niche.toLowerCase().replace(/[^a-z0-9]/g, ''), "trending", "explore", "reels"]
-    };
+    console.warn('Text metadata generation fell back to algorithmic pool:', e?.message);
   }
+
+  // 3. Dynamic procedural fallback with non-repeating viral pool & niche SEO
+  const unusedHooks = VIRAL_RETENTION_HOOKS.filter(h => !existingSet.has(formatMobileShortTitle(h).toLowerCase().trim()));
+  const pool = unusedHooks.length >= 3 ? unusedHooks : VIRAL_RETENTION_HOOKS;
+  
+  // Shuffle pool to guarantee variety
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  const pickedTitles = shuffled.slice(0, 3).map(h => formatMobileShortTitle(h));
+
+  return {
+    title: pickedTitles[0],
+    titles: pickedTitles,
+    description: `${nicheSEO.summary}\n\n👉 Subscribe for daily elite insights.\n\n${nicheSEO.hashtags}`,
+    tags: nicheSEO.tags
+  };
 }
 
 // --- JWT & Auth Helpers (Web Crypto) ---
@@ -1526,8 +1609,13 @@ app.post('/api/jobs/complete', async (c) => {
          WHERE id = ?`
       ).bind(today, today, channel?.id).run();
 
+      const existingTitlesRes = await c.env.DB.prepare(
+        `SELECT ai_title FROM render_jobs WHERE channel_id = ? AND ai_title IS NOT NULL`
+      ).bind(channel?.id).all();
+      const existingTitles = (existingTitlesRes.results || []).map((r: any) => r.ai_title).filter(Boolean);
+
       const keywords = await getTrendingKeywords(niche as string);
-      const meta = await generateVideoMetadata(c.env, (job as any)?.file_name || 'Shorts Video', niche as string, keywords, imageBase64);
+      const meta = await generateVideoMetadata(c.env, (job as any)?.file_name || 'Shorts Video', niche as string, keywords, imageBase64, existingTitles);
       
       if (meta) {
         aiTitle = meta.title || aiTitle;
@@ -1566,7 +1654,12 @@ app.post('/api/jobs/:id/generate-metadata', async (c) => {
     const niche = (channel?.niche as string) || 'general';
     const keywords = await getTrendingKeywords(niche);
 
-    const meta = await generateVideoMetadata(c.env, (job.file_name as string) || 'Shorts Video', niche, keywords);
+    const existingTitlesRes = await c.env.DB.prepare(
+      `SELECT ai_title FROM render_jobs WHERE channel_id = ? AND ai_title IS NOT NULL AND id != ?`
+    ).bind(job.channel_id, id).all();
+    const existingTitles = (existingTitlesRes.results || []).map((r: any) => r.ai_title).filter(Boolean);
+
+    const meta = await generateVideoMetadata(c.env, (job.file_name as string) || 'Shorts Video', niche, keywords, undefined, existingTitles);
 
     const title = meta.title || `${job.file_name} #Shorts`;
     let description = meta.description || `Enjoy this video!`;
@@ -1611,8 +1704,8 @@ function isUSDaylightSaving(d: Date): boolean {
 async function getNextUSPeakSlot(env: any, channelId: string, latestScheduled: string | null): Promise<Date> {
   const now = new Date();
   let minStart = latestScheduled ? new Date(latestScheduled) : now;
-  // Space out each Short by at least 3 hours, and at least 30 minutes from now
-  minStart = new Date(Math.max(now.getTime() + 30 * 60 * 1000, minStart.getTime() + 3 * 60 * 60 * 1000));
+  // Space out each Short by at least 4 hours, and at least 30 minutes from now
+  minStart = new Date(Math.max(now.getTime() + 30 * 60 * 1000, minStart.getTime() + 4 * 60 * 60 * 1000));
 
   let customTargetSlotsUTC: {h: number, m: number}[] = [];
 
@@ -1638,13 +1731,26 @@ async function getNextUSPeakSlot(env: any, channelId: string, latestScheduled: s
 
   for (let dayOffset = 0; dayOffset < 30; dayOffset++) {
     const candidateDay = new Date(minStart.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const dayStartISO = new Date(Date.UTC(candidateDay.getUTCFullYear(), candidateDay.getUTCMonth(), candidateDay.getUTCDate(), 0, 0, 0)).toISOString();
+    const dayEndISO = new Date(Date.UTC(candidateDay.getUTCFullYear(), candidateDay.getUTCMonth(), candidateDay.getUTCDate(), 23, 59, 59)).toISOString();
+
+    // Enforce max 3 shorts per day per channel
+    const scheduledOnDay: any = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM render_jobs 
+       WHERE channel_id = ? AND status = 'SCHEDULED' 
+         AND scheduled_slot >= ? AND scheduled_slot <= ?`
+    ).bind(channelId, dayStartISO, dayEndISO).first();
+
+    if ((scheduledOnDay?.count || 0) >= 3) {
+      continue; // Day is full, advance to next day
+    }
+
     const isDst = isUSDaylightSaving(candidateDay);
     const baseHourOffset = isDst ? 0 : 1;
     
     let targetSlotsUTC = customTargetSlotsUTC.length > 0 ? customTargetSlotsUTC : [
       { h: (2 + baseHourOffset) % 24, m: 30 },
       { h: (17 + baseHourOffset) % 24, m: 0 },
-      { h: (19 + baseHourOffset) % 24, m: 0 },
       { h: (20 + baseHourOffset) % 24, m: 30 }
     ];
     targetSlotsUTC = targetSlotsUTC.sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m));
@@ -1697,10 +1803,11 @@ app.post('/api/jobs/:id/approve', async (c) => {
   const cleanTags = rawTags.map((t: any) => String(t).trim()).filter(Boolean);
 
   // Call YouTube API to update privacy status, English language signals, and snippet
+  const formattedTitle = formatMobileShortTitle(String(body.ai_title || "Shorts Video"));
   const ytBody = {
     id: job.youtube_video_id,
     snippet: {
-      title: String(body.ai_title || "Shorts Video").slice(0, 100),
+      title: formattedTitle,
       description: body.ai_description ? String(body.ai_description) : "",
       tags: cleanTags,
       categoryId: "22",
@@ -1823,6 +1930,12 @@ app.all('/api/jobs/publish-due', async (c) => {
   });
 });
 
+app.all('/api/analytics/sync', async (c) => {
+  const limit = parseInt(c.req.query('limit') || '50', 10);
+  const synced = await syncYouTubeAnalytics(c.env, limit);
+  return c.json({ success: true, synced_count: synced });
+});
+
 async function publishDueScheduledJobs(env: Env, forceAll = false, maxCount = 50) {
   const query = forceAll
     ? `SELECT r.*, c.youtube_refresh_token 
@@ -1845,11 +1958,20 @@ async function publishDueScheduledJobs(env: Env, forceAll = false, maxCount = 50
   const jobsList = dueJobs.results || [];
   const results: any[] = [];
   const tokenCache = new Map<string, string>();
+  const channelPublishCount = new Map<string, number>();
 
   for (const job of jobsList) {
     if (!job.youtube_video_id || !job.youtube_refresh_token) {
       results.push({ id: job.id, file_name: job.file_name, success: false, error: 'Missing video ID or refresh token' });
       continue;
+    }
+
+    // When running via automatic cron, prevent burst floods by capping at 2 videos per channel per hour
+    if (!forceAll) {
+      const channelCount = channelPublishCount.get(job.channel_id as string) || 0;
+      if (channelCount >= 2) {
+        continue;
+      }
     }
 
     try {
@@ -1868,6 +1990,7 @@ async function publishDueScheduledJobs(env: Env, forceAll = false, maxCount = 50
 
       const rawTags = job.ai_tags ? (typeof job.ai_tags === 'string' ? job.ai_tags.split(',') : (Array.isArray(job.ai_tags) ? job.ai_tags : [])) : [];
       const cleanTags = rawTags.map((t: any) => String(t).trim()).filter(Boolean);
+      const formattedTitle = formatMobileShortTitle(String(job.ai_title || "Shorts Video"));
 
       const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
         method: 'PUT',
@@ -1878,7 +2001,7 @@ async function publishDueScheduledJobs(env: Env, forceAll = false, maxCount = 50
         body: JSON.stringify({
           id: job.youtube_video_id,
           snippet: {
-            title: String(job.ai_title || "Shorts Video").slice(0, 100),
+            title: formattedTitle,
             description: job.ai_description || "",
             tags: cleanTags,
             categoryId: "22",
@@ -1896,6 +2019,7 @@ async function publishDueScheduledJobs(env: Env, forceAll = false, maxCount = 50
         await env.DB.prepare(
           `UPDATE render_jobs SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP WHERE id = ?`
         ).bind(job.id).run();
+        channelPublishCount.set(job.channel_id as string, (channelPublishCount.get(job.channel_id as string) || 0) + 1);
         console.log(`Cron successfully published scheduled job ${job.id} (${job.file_name})`);
         results.push({ id: job.id, file_name: job.file_name, youtube_video_id: job.youtube_video_id, success: true });
       } else {
@@ -1915,53 +2039,67 @@ async function publishDueScheduledJobs(env: Env, forceAll = false, maxCount = 50
   return results;
 }
 
+async function syncYouTubeAnalytics(env: Env, maxCount = 50): Promise<number> {
+  const publishedJobs = await env.DB.prepare(
+    `SELECT r.*, c.youtube_refresh_token 
+     FROM render_jobs r
+     JOIN channels c ON r.channel_id = c.id
+     WHERE r.status = 'PUBLISHED' 
+       AND r.youtube_video_id IS NOT NULL
+     ORDER BY r.published_at DESC LIMIT ?`
+  ).bind(maxCount).all();
+
+  const jobs = publishedJobs.results || [];
+  const tokenCache = new Map<string, string>();
+  let synced = 0;
+
+  for (const job of jobs) {
+    if (!job.youtube_refresh_token || !job.youtube_video_id) continue;
+    try {
+      let accessToken = tokenCache.get(job.channel_id as string);
+      if (!accessToken) {
+        accessToken = (await getGoogleAccessToken(env, job.youtube_refresh_token as string)) || undefined;
+        if (accessToken) tokenCache.set(job.channel_id as string, accessToken);
+      }
+      if (!accessToken) continue;
+
+      const ytRes = await fetch(`https://youtube.googleapis.com/youtube/v3/videos?part=statistics&id=${job.youtube_video_id}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (ytRes.ok) {
+        const data: any = await ytRes.json();
+        const stats = data.items?.[0]?.statistics;
+        if (stats) {
+          const id = crypto.randomUUID();
+          await env.DB.prepare(
+            `INSERT INTO video_metrics (id, render_job_id, views, likes, comments)
+             VALUES (?, ?, ?, ?, ?)`
+          ).bind(id, job.id, parseInt(stats.viewCount || '0', 10), parseInt(stats.likeCount || '0', 10), parseInt(stats.commentCount || '0', 10)).run();
+          synced++;
+        }
+      }
+    } catch (err) {
+      console.error(`Error syncing analytics for ${job.id}:`, err);
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return synced;
+}
+
 export default {
   fetch: app.fetch,
   async scheduled(event: any, env: any, ctx: any) {
     console.log("Running scheduled publishing cron...");
     try {
-      // 1. Publish due scheduled videos
-      await publishDueScheduledJobs(env, false, 50);
+      // 1. Publish due scheduled videos (paged & throttled)
+      await publishDueScheduledJobs(env, false, 25);
 
-      // 2. Fetch Analytics for published jobs
-      const publishedJobs = await env.DB.prepare(
-        `SELECT r.*, c.youtube_refresh_token 
-         FROM render_jobs r
-         JOIN channels c ON r.channel_id = c.id
-         WHERE r.status = 'PUBLISHED' 
-           AND r.youtube_video_id IS NOT NULL
-         ORDER BY r.published_at DESC LIMIT 50`
-      ).all();
-
-      for (const job of (publishedJobs.results || [])) {
-        if (!job.youtube_refresh_token) continue;
-        try {
-          const accessToken = await getGoogleAccessToken(env, job.youtube_refresh_token);
-          if (!accessToken) continue;
-
-          const ytRes = await fetch(`https://youtube.googleapis.com/youtube/v3/videos?part=statistics&id=${job.youtube_video_id}`, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Accept': 'application/json'
-            }
-          });
-          
-          if (ytRes.ok) {
-            const data: any = await ytRes.json();
-            const stats = data.items?.[0]?.statistics;
-            if (stats) {
-              const id = crypto.randomUUID();
-              await env.DB.prepare(
-                `INSERT INTO video_metrics (id, render_job_id, views, likes, comments)
-                 VALUES (?, ?, ?, ?, ?)`
-              ).bind(id, job.id, parseInt(stats.viewCount || '0'), parseInt(stats.likeCount || '0'), parseInt(stats.commentCount || '0')).run();
-            }
-          }
-        } catch (jobErr) {
-          console.error(`Error fetching analytics for ${job.id}:`, jobErr);
-        }
-      }
-
+      // 2. Fetch and record live YouTube analytics
+      await syncYouTubeAnalytics(env, 50);
     } catch (e) {
       console.error("Scheduled cron failed:", e);
     }
