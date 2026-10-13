@@ -157,9 +157,9 @@ export default function ReviewPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        if (res.status === 403 || data.error === 'YOUTUBE_REAUTH_REQUIRED' || String(data.details).includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || String(data.details).includes('insufficientPermissions')) {
+        if (res.status === 401 || res.status === 403 || data.error === 'YOUTUBE_REAUTH_REQUIRED' || String(data.error).toLowerCase().includes('token') || String(data.details).includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || String(data.details).includes('insufficientPermissions')) {
           setReauthNeeded(true);
-          throw new Error('YouTube requires updated channel permissions to edit/publish videos. Click "Reconnect YouTube Channel" below.');
+          throw new Error('YouTube permissions expired. Click "Reconnect YouTube Channel" below to re-authorize.');
         }
         throw new Error(data.error || 'Failed to approve video');
       }
@@ -203,9 +203,9 @@ export default function ReviewPage() {
         });
         const data = await res.json();
         if (!res.ok) {
-           if (res.status === 403 || data.error === 'YOUTUBE_REAUTH_REQUIRED') {
+           if (res.status === 401 || res.status === 403 || data.error === 'YOUTUBE_REAUTH_REQUIRED' || String(data.error).toLowerCase().includes('token')) {
              setReauthNeeded(true);
-             toast.error('YouTube reauth needed during batch process!');
+             toast.error('YouTube authorization expired. Please click Reconnect Permissions.');
              break;
            }
            console.error(`Failed job ${job.id}:`, data.error);
