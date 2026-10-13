@@ -5,6 +5,7 @@ import { ArrowUp, ChevronDown, Plus, Loader2, Info, PlaySquare, CheckCircle2, Lo
 import { useProject } from './ProjectContext';
 import { useAuth } from './AuthContext';
 import toast from 'react-hot-toast';
+import { SafeAvatar } from './components/SafeAvatar';
 
 interface LayoutContextType {
   sidebarOpen: boolean;
@@ -52,18 +53,12 @@ export function HeaderNav() {
       <div className="flex items-center space-x-2 sm:space-x-4 relative shrink-0">
         {user && (
           <div className="flex items-center gap-2 px-2.5 sm:px-3 py-1 bg-gray-50 border border-gray-200 rounded-full text-xs">
-            {user.avatar_url ? (
-              <img
-                src={user.avatar_url}
-                alt={user.name || 'User'}
-                className="w-5 h-5 rounded-full object-cover shrink-0"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0">
-                {user.name ? user.name[0].toUpperCase() : 'U'}
-              </div>
-            )}
+            <SafeAvatar
+              src={user.avatar_url}
+              name={user.name || 'User'}
+              className="w-5 h-5"
+              textClassName="text-[10px]"
+            />
             <span className="font-medium text-gray-700 max-w-[80px] sm:max-w-[140px] truncate">{user.name || user.email.split('@')[0]}</span>
           </div>
         )}
@@ -224,13 +219,12 @@ export function SidebarInner({ onClose }: { onClose?: () => void }) {
           <div className="flex items-center space-x-3 overflow-hidden">
             {activeChannel ? (
               <>
-                {activeChannel.avatar_url ? (
-                  <img src={activeChannel.avatar_url} alt="" className="w-8 h-8 rounded-full border border-gray-200 shrink-0 object-cover" />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-bold flex items-center justify-center shrink-0">
-                    {activeChannel.channel_name.charAt(0)}
-                  </div>
-                )}
+                <SafeAvatar
+                  src={activeChannel.avatar_url}
+                  name={activeChannel.channel_name}
+                  className="w-8 h-8"
+                  textClassName="text-sm"
+                />
                 <div className="truncate">
                   <p className="text-sm font-bold text-gray-900 truncate">{activeChannel.channel_name}</p>
                   <p className="text-xs text-gray-500 truncate">{activeChannel.niche}</p>
@@ -277,11 +271,12 @@ export function SidebarInner({ onClose }: { onClose?: () => void }) {
                 }}
                 className={`w-full text-left px-4 py-2 text-sm flex items-center space-x-3 hover:bg-gray-50 ${activeChannel?.id === channel.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
               >
-                {channel.avatar_url ? (
-                  <img src={channel.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover" />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold">{channel.channel_name.charAt(0)}</div>
-                )}
+                <SafeAvatar
+                  src={channel.avatar_url}
+                  name={channel.channel_name}
+                  className="w-6 h-6"
+                  textClassName="text-xs"
+                />
                 <span className="truncate flex-1">{channel.channel_name}</span>
                 {activeChannel?.id === channel.id && <CheckCircle2 size={16} className="text-blue-600" />}
               </button>
@@ -365,18 +360,12 @@ export function SidebarInner({ onClose }: { onClose?: () => void }) {
       {user && (
         <div className="p-3.5 border-t border-gray-100 bg-gray-50/70 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            {user.avatar_url ? (
-              <img
-                src={user.avatar_url}
-                alt={user.name || 'User'}
-                className="w-8 h-8 rounded-full border border-gray-200 shrink-0 object-cover"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shrink-0">
-                {user.name ? user.name[0].toUpperCase() : 'U'}
-              </div>
-            )}
+            <SafeAvatar
+              src={user.avatar_url}
+              name={user.name || 'User'}
+              className="w-8 h-8"
+              textClassName="text-xs"
+            />
             <div className="min-w-0">
               <p className="text-xs font-bold text-gray-900 truncate">
                 {user.name || user.email.split('@')[0]}

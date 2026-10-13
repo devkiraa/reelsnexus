@@ -810,6 +810,25 @@ app.get('/api/auth/drive/callback', async (c) => {
 
 // --- Settings & Master Drive Endpoints ---
 
+app.get('/api/avatar-proxy', async (c) => {
+  const url = c.req.query('url');
+  if (!url || !url.startsWith('https://yt3.ggpht.com/')) {
+    return new Response(null, { status: 400 });
+  }
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return new Response(null, { status: res.status });
+    return new Response(res.body, {
+      headers: {
+        'Content-Type': res.headers.get('Content-Type') || 'image/jpeg',
+        'Cache-Control': 'public, max-age=86400'
+      }
+    });
+  } catch (e) {
+    return new Response(null, { status: 502 });
+  }
+});
+
 app.get('/api/drive/proxy-thumbnail', async (c) => {
   const fileId = c.req.query('fileId');
   if (!fileId || !/^[a-zA-Z0-9_-]{10,100}$/.test(fileId)) {
@@ -1525,40 +1544,45 @@ app.post('/api/jobs/complete', async (c) => {
 
 // Endpoint for UI to trigger AI generation on demand with skeleton loading
 app.post('/api/jobs/:id/generate-metadata', async (c) => {
-  const id = c.req.param('id');
-  const job = await c.env.DB.prepare(`SELECT * FROM render_jobs WHERE id = ?`).bind(id).first();
-  if (!job) return c.json({ error: 'Job not found' }, 404);
+  try {
+    const id = c.req.param('id');
+    const job = await c.env.DB.prepare(`SELECT * FROM render_jobs WHERE id = ?`).bind(id).first();
+    if (!job) return c.json({ error: 'Job not found' }, 404);
 
-  const channel = await c.env.DB.prepare(`SELECT * FROM channels WHERE id = ?`).bind(job.channel_id).first();
-  const niche = (channel?.niche as string) || 'general';
-  const keywords = await getTrendingKeywords(niche);
+    const channel = await c.env.DB.prepare(`SELECT * FROM channels WHERE id = ?`).bind(job.channel_id).first();
+    const niche = (channel?.niche as string) || 'general';
+    const keywords = await getTrendingKeywords(niche);
 
-  const meta = await generateVideoMetadata(c.env, (job.file_name as string) || 'Shorts Video', niche, keywords);
+    const meta = await generateVideoMetadata(c.env, (job.file_name as string) || 'Shorts Video', niche, keywords);
 
-  const title = meta.title || `${job.file_name} #Shorts`;
-  let description = meta.description || `Enjoy this video!`;
-  const tags = Array.isArray(meta.tags) ? meta.tags.join(',') : (meta.tags || 'shorts,viral,trending');
+    const title = meta.title || `${job.file_name} #Shorts`;
+    let description = meta.description || `Enjoy this video!`;
+    const tags = Array.isArray(meta.tags) ? meta.tags.join(',') : (meta.tags || 'shorts,viral,trending');
 
-  const emailStr = channel?.contact_email ? channel.contact_email : 'us';
-  const dmcaBlock = `\n\n---\n⚠️ Copyright/DMCA Notice: This video is heavily transformative and edited under fair use guidelines. However, if you are the original owner of any clips and wish for them to be removed, please contact ${emailStr} and we will immediately take this down.`;
-  if (!description.includes('Copyright/DMCA Notice')) {
-    description += dmcaBlock;
+    const emailStr = channel?.contact_email ? channel.contact_email : 'us';
+    const dmcaBlock = `\n\n---\n⚠️ Copyright/DMCA Notice: This video is heavily transformative and edited under fair use guidelines. However, if you are the original owner of any clips and wish for them to be removed, please contact ${emailStr} and we will immediately take this down.`;
+    if (!description.includes('Copyright/DMCA Notice')) {
+      description += dmcaBlock;
+    }
+
+    const titlesStr = meta.titles ? JSON.stringify(meta.titles) : JSON.stringify([title]);
+
+    await c.env.DB.prepare(
+      `UPDATE render_jobs SET ai_title = ?, ai_description = ?, ai_tags = ?, ai_title_variants = ? WHERE id = ?`
+    ).bind(title, description, tags, titlesStr, id).run();
+
+    return c.json({
+      success: true,
+      ai_title: title,
+      ai_title_variants: meta.titles || [title],
+      ai_description: description,
+      ai_tags: tags,
+      error_debug: (meta as any).error_debug
+    });
+  } catch (err: any) {
+    console.error('generate-metadata error:', err);
+    return c.json({ error: err.message || 'Failed to generate metadata' }, 500);
   }
-
-  const titlesStr = meta.titles ? JSON.stringify(meta.titles) : JSON.stringify([title]);
-
-  await c.env.DB.prepare(
-    `UPDATE render_jobs SET ai_title = ?, ai_description = ?, ai_tags = ?, ai_title_variants = ? WHERE id = ?`
-  ).bind(title, description, tags, titlesStr, id).run();
-
-  return c.json({
-    success: true,
-    ai_title: title,
-    ai_title_variants: meta.titles || [title],
-    ai_description: description,
-    ai_tags: tags,
-    error_debug: (meta as any).error_debug
-  });
 });
 
 function isUSDaylightSaving(d: Date): boolean {

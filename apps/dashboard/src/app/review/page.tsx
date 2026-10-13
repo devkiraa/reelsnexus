@@ -76,8 +76,18 @@ export default function ReviewPage() {
         method: 'POST',
         headers: getAuthHeaders()
       });
+      if (!res.ok) {
+        const text = await res.text();
+        let errMsg = 'Failed to generate AI metadata';
+        try {
+          const errData = JSON.parse(text);
+          errMsg = errData.error || errMsg;
+        } catch {
+          errMsg = text || errMsg;
+        }
+        throw new Error(errMsg);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to generate AI metadata');
 
       setAiTitle(data.ai_title || data.title || '');
       setAiTitleVariants(data.ai_title_variants || []);

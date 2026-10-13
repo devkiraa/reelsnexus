@@ -3,6 +3,7 @@
 import React from 'react';
 import { useProject } from './ProjectContext';
 import { PlaySquare, Users, Video, Clock, AlertCircle } from 'lucide-react';
+import { SafeAvatar } from './components/SafeAvatar';
 
 export default function DashboardHome() {
   const { activeChannel, channels, loading, setActiveChannelId } = useProject();
@@ -43,13 +44,12 @@ export default function DashboardHome() {
                 className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 hover:shadow-md hover:border-blue-300 cursor-pointer transition-all group"
               >
                 <div className="flex items-center space-x-3 sm:space-x-4 mb-4">
-                  {channel.avatar_url ? (
-                    <img src={channel.avatar_url} alt="" className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border border-gray-200 object-cover shrink-0" />
-                  ) : (
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-100 text-blue-600 font-bold text-lg sm:text-xl flex items-center justify-center shrink-0">
-                      {channel.channel_name.charAt(0)}
-                    </div>
-                  )}
+                  <SafeAvatar
+                    src={channel.avatar_url}
+                    name={channel.channel_name}
+                    className="w-10 h-10 sm:w-12 sm:h-12"
+                    textClassName="text-lg sm:text-xl"
+                  />
                   <div className="flex-1 min-w-0">
                     <h3 className="text-base sm:text-lg font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors">{channel.channel_name}</h3>
                     <p className="text-xs sm:text-sm text-gray-500 truncate">{channel.channel_handle || `@${channel.channel_name.replace(/\s+/g, '')}`}</p>
@@ -81,13 +81,12 @@ export default function DashboardHome() {
       {/* Active Channel Header */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center space-x-4 sm:space-x-5">
-          {activeChannel.avatar_url ? (
-            <img src={activeChannel.avatar_url} alt="" className="w-12 h-12 sm:w-16 sm:h-16 rounded-full border border-gray-200 object-cover shrink-0" />
-          ) : (
-            <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 text-blue-600 font-bold text-xl sm:text-2xl flex items-center justify-center shrink-0">
-              {activeChannel.channel_name.charAt(0)}
-            </div>
-          )}
+          <SafeAvatar
+            src={activeChannel.avatar_url}
+            name={activeChannel.channel_name}
+            className="w-12 h-12 sm:w-16 sm:h-16"
+            textClassName="text-xl sm:text-2xl"
+          />
           <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{activeChannel.channel_name}</h1>
             <div className="flex flex-wrap items-center gap-2 mt-1 text-xs sm:text-sm text-gray-500">
