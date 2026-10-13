@@ -363,7 +363,7 @@ async function verifyJwt(token: string, secret: string): Promise<any | null> {
 async function getEncryptionKey(secretKey: string): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.digest('SHA-256', enc.encode(secretKey));
-  return crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-256-GCM' }, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
 async function encryptSecret(plainText: string, secretKey: string): Promise<string> {
@@ -371,7 +371,7 @@ async function encryptSecret(plainText: string, secretKey: string): Promise<stri
   const enc = new TextEncoder();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await getEncryptionKey(secretKey);
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-256-GCM', iv }, key, enc.encode(plainText));
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plainText));
   
   const combined = new Uint8Array(iv.length + encrypted.byteLength);
   combined.set(iv, 0);
@@ -391,7 +391,7 @@ async function decryptSecret(cipherTextB64: string, secretKey: string): Promise<
     const iv = raw.slice(0, 12);
     const data = raw.slice(12);
     const key = await getEncryptionKey(secretKey);
-    const decrypted = await crypto.subtle.decrypt({ name: 'AES-256-GCM', iv }, key, data);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
     return new TextDecoder().decode(decrypted);
   } catch (err) {
     return cipherTextB64;
