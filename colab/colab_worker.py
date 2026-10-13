@@ -68,9 +68,19 @@ def get_google_services(token_data):
 
 def claim_job():
     headers = {'X-Colab-Key': COLAB_API_KEY}
-    response = requests.post(f"{API_BASE_URL}/api/jobs/claim", headers=headers)
-    if response.status_code == 200:
-        return response.json()
+    try:
+        response = requests.post(f"{API_BASE_URL}/api/jobs/claim", headers=headers, timeout=15)
+        if response.status_code == 200:
+            return response.json()
+        if response.status_code == 400:
+            try:
+                err = response.json()
+                if err.get('error') == 'MASTER_DRIVE_TOKEN_EXPIRED':
+                    print("⚠️ Master Drive Token missing or expired. Reconnect in Dashboard -> Settings. Retrying in 30s...")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"Network error claiming job: {e}")
     return None
 
 def download_from_drive(drive_service, file_id, destination):
@@ -253,7 +263,9 @@ def main_loop():
                 _, master_drive = get_google_services(job["master_drive_token_data"])
                 download_from_drive(master_drive, job.get('source_file_id') or job.get('raw_drive_id'), input_path)
             else:
-                raise ValueError("Master Drive Token missing or expired. Please Reconnect Master Drive in the Dashboard.")
+                print("⚠️ Master Drive Token missing or expired. Reconnect Master Drive in Dashboard Settings.")
+                time.sleep(30)
+                continue
 
             output_path = os.path.join(tmp_dir, f"processed_{job['file_name']}")
             

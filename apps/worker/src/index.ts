@@ -751,7 +751,8 @@ app.get('/api/auth/drive/connect', async (c) => {
   authUrl.searchParams.set('access_type', 'offline');
   authUrl.searchParams.set('prompt', 'consent');
   
-  const stateToken = await generateSecureState({ returnTo: '/ingest' }, c.env.GOOGLE_CLIENT_SECRET);
+  const returnTo = c.req.query('return_to') || '/settings';
+  const stateToken = await generateSecureState({ returnTo }, c.env.GOOGLE_CLIENT_SECRET);
   authUrl.searchParams.set('state', stateToken);
 
   return c.redirect(authUrl.toString());
@@ -763,13 +764,15 @@ app.get('/api/auth/drive/callback', async (c) => {
   const error = c.req.query('error');
   const frontendUrl = c.env.FRONTEND_URL || 'https://reelnexus-dashboard.pages.dev';
 
+  const stateData = await verifySecureState(stateRaw, c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev');
+  const returnTo = (stateData && stateData.returnTo) || '/settings';
+
   if (error || !code) {
-    return c.redirect(`${frontendUrl}/ingest?error=drive_oauth_failed`);
+    return c.redirect(`${frontendUrl}${returnTo}?error=drive_oauth_failed`);
   }
 
-  const stateData = await verifySecureState(stateRaw, c.env.GOOGLE_CLIENT_SECRET || 'reelnexus_jwt_secret_dev');
   if (!stateData) {
-    return c.redirect(`${frontendUrl}/ingest?error=invalid_csrf_state`);
+    return c.redirect(`${frontendUrl}${returnTo}?error=invalid_csrf_state`);
   }
 
   const redirectUri = new URL('/api/auth/drive/callback', c.req.url).toString();
@@ -798,10 +801,10 @@ app.get('/api/auth/drive/callback', async (c) => {
       ).bind(encToken).run();
     }
     
-    return c.redirect(`${frontendUrl}/ingest?success=drive_connected`);
+    return c.redirect(`${frontendUrl}${returnTo}?success=drive_connected`);
   } catch (e) {
     console.error('Drive OAuth failed:', e);
-    return c.redirect(`${frontendUrl}/ingest?error=drive_token_exchange_failed`);
+    return c.redirect(`${frontendUrl}${returnTo}?error=drive_token_exchange_failed`);
   }
 });
 
@@ -869,7 +872,16 @@ app.get('/api/drive/proxy-video', async (c) => {
 
 app.get('/api/settings', async (c) => {
   const setting = await c.env.DB.prepare(`SELECT value FROM global_settings WHERE key = 'master_drive_refresh_token'`).first();
-  return c.json({ has_master_drive: !!setting });
+  let tokenValid = false;
+  if (setting && setting.value) {
+    const accessToken = await getGoogleAccessToken(c.env, setting.value as string);
+    tokenValid = !!accessToken;
+  }
+  return c.json({ 
+    has_master_drive: tokenValid,
+    is_configured: !!setting,
+    token_valid: tokenValid
+  });
 });
 
 app.get('/api/drive/folders', async (c) => {
@@ -1379,6 +1391,17 @@ app.post('/api/jobs/claim', async (c) => {
   const colabKey = c.req.header('X-Colab-Key');
   if (colabKey !== c.env.COLAB_API_KEY) return c.json({ error: 'Unauthorized' }, 401);
   
+  // Guard: Verify Master Drive token is valid before claiming any job
+  const masterDrive = await c.env.DB.prepare(`SELECT value FROM global_settings WHERE key = 'master_drive_refresh_token'`).first();
+  if (!masterDrive || !masterDrive.value) {
+    return c.json({ error: 'MASTER_DRIVE_TOKEN_EXPIRED', message: 'Master Drive not connected. Connect in Settings.' }, 400);
+  }
+
+  const driveAccessToken = await getGoogleAccessToken(c.env, masterDrive.value as string);
+  if (!driveAccessToken) {
+    return c.json({ error: 'MASTER_DRIVE_TOKEN_EXPIRED', message: 'Master Drive token expired. Reconnect in Settings.' }, 400);
+  }
+
   const job = await c.env.DB.prepare(
     `SELECT r.* FROM render_jobs r
      JOIN channels c ON r.channel_id = c.id
@@ -1394,7 +1417,7 @@ app.post('/api/jobs/claim', async (c) => {
   const jobData: Record<string, any> = { 
     ...job, 
     youtube_token_data: null, 
-    master_drive_token_data: null,
+    master_drive_token_data: { access_token: driveAccessToken },
     channel_niche: channel?.niche || 'entertainment', 
     channel_handle: channel?.channel_handle || `@${(channel?.channel_name as string || 'Shorts').replace(/\s+/g, '')}`,
     target_drive_folder_path: `ReelNexus/exported_videos/${(channel?.channel_name as string || 'General').replace(/[^a-zA-Z0-9-_]/g, '_')}`,
@@ -1419,16 +1442,6 @@ app.post('/api/jobs/claim', async (c) => {
       jobData.youtube_token_data = {
          access_token: ytAccessToken,
          channel_id: channel.id
-      };
-    }
-  }
-
-  const masterDrive = await c.env.DB.prepare(`SELECT value FROM global_settings WHERE key = 'master_drive_refresh_token'`).first();
-  if (masterDrive && masterDrive.value) {
-    const driveAccessToken = await getGoogleAccessToken(c.env, masterDrive.value as string);
-    if (driveAccessToken) {
-      jobData.master_drive_token_data = {
-         access_token: driveAccessToken
       };
     }
   }
@@ -1638,7 +1651,7 @@ app.post('/api/jobs/:id/approve', async (c) => {
      ORDER BY scheduled_slot DESC LIMIT 1`
   ).bind(job.channel_id).first();
 
-  const futureSlot = await getNextUSPeakSlot(c.env, job.channel_id, latestJob?.scheduled_slot as string | null);
+  const futureSlot = await getNextUSPeakSlot(c.env, job.channel_id as string, latestJob?.scheduled_slot as string | null);
   
   const publishNow = body.publish_now === true;
   const newStatus = publishNow ? 'PUBLISHED' : 'SCHEDULED';

@@ -207,13 +207,21 @@ function IngestPageContent() {
         </div>
         
         {hasMasterDrive === false && (
-          <a 
-            href={`${API_BASE}/api/auth/drive/connect`}
-            className="flex items-center space-x-2 bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg text-xs sm:text-sm font-medium hover:bg-yellow-200 transition-colors w-max"
-          >
-            <Key className="w-4 h-4" />
-            <span>Connect Master Drive</span>
-          </a>
+          <div className="flex items-center gap-2">
+            <a 
+              href={`${API_BASE}/api/auth/drive/connect?return_to=/ingest`}
+              className="flex items-center space-x-2 bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg text-xs sm:text-sm font-medium hover:bg-yellow-200 transition-colors w-max"
+            >
+              <Key className="w-4 h-4" />
+              <span>Connect Master Drive</span>
+            </a>
+            <a 
+              href="/settings"
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Settings
+            </a>
+          </div>
         )}
       </div>
       
