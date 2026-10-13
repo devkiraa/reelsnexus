@@ -1768,6 +1768,48 @@ app.post('/api/jobs/:id/approve', async (c) => {
   return c.json({ success: true, status: newStatus, scheduled_slot: futureSlot.toISOString() });
 });
 
+app.get('/api/debug/youtube-check', async (c) => {
+  const channel = await c.env.DB.prepare(`SELECT * FROM channels LIMIT 1`).first();
+  if (!channel || !channel.youtube_refresh_token) {
+    return c.json({ error: 'No channel or YouTube token' }, 400);
+  }
+
+  const accessToken = await getGoogleAccessToken(c.env, channel.youtube_refresh_token as string);
+  if (!accessToken) {
+    return c.json({ error: 'Failed to obtain access token with refresh token' }, 401);
+  }
+
+  const testIds = ['LcSRVvmTsfY', 'Ep7Y-PRyANg', 'q9lVCO0_5Fc'];
+  const ytRes = await fetch(`https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status,statistics&id=${testIds.join(',')}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Accept': 'application/json'
+    }
+  });
+
+  if (!ytRes.ok) {
+    const errText = await ytRes.text();
+    return c.json({ error: 'YouTube API error', details: errText }, ytRes.status as any);
+  }
+
+  const data: any = await ytRes.json();
+  const summary = (data.items || []).map((item: any) => ({
+    id: item.id,
+    title: item.snippet?.title,
+    privacyStatus: item.status?.privacyStatus,
+    uploadStatus: item.status?.uploadStatus,
+    views: item.statistics?.viewCount,
+    likes: item.statistics?.likeCount,
+    publishedAt: item.snippet?.publishedAt
+  }));
+
+  return c.json({
+    channel_name: channel.channel_name,
+    token_valid: true,
+    videos: summary
+  });
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(event: any, env: any, ctx: any) {
