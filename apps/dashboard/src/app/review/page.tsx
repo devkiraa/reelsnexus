@@ -25,6 +25,7 @@ export default function ReviewPage() {
   const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
   const [isBatchApproving, setIsBatchApproving] = useState(false);
   const [batchProgress, setBatchProgress] = useState(0);
+  const [isBatchPublishing, setIsBatchPublishing] = useState(false);
 
   const [reauthNeeded, setReauthNeeded] = useState(false);
 
@@ -223,6 +224,25 @@ export default function ReviewPage() {
     await fetchJobs();
   };
 
+  const handlePublishAllDue = async () => {
+    if (!confirm(`Are you sure you want to publish all ${jobs.length} scheduled videos to YouTube right now?`)) return;
+    setIsBatchPublishing(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/jobs/publish-due?force=true`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to publish due videos');
+      toast.success(`Published ${data.published} videos to YouTube! (${data.failed} failed)`);
+      await fetchJobs();
+    } catch (e: any) {
+      toast.error(e.message || 'Publishing failed');
+    } finally {
+      setIsBatchPublishing(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!selectedJob) return;
     if (!confirm(`Are you sure you want to delete ${selectedJob.file_name}?`)) return;
@@ -292,6 +312,17 @@ export default function ReviewPage() {
             >
               <CheckCircle2 className={`w-3.5 h-3.5 ${isBatchApproving ? 'animate-spin' : ''}`} />
               <span>{isBatchApproving ? `Approving ${batchProgress}/${jobs.length}...` : 'Approve All'}</span>
+            </button>
+          )}
+
+          {activeTab === 'SCHEDULED' && jobs.length > 0 && (
+            <button
+              onClick={handlePublishAllDue}
+              disabled={isBatchPublishing}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors shrink-0 disabled:opacity-50"
+            >
+              <Send className={`w-3.5 h-3.5 ${isBatchPublishing ? 'animate-spin' : ''}`} />
+              <span>{isBatchPublishing ? 'Publishing to YouTube...' : 'Publish All Due Now'}</span>
             </button>
           )}
 

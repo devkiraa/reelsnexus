@@ -1810,65 +1810,119 @@ app.get('/api/debug/youtube-check', async (c) => {
   });
 });
 
+app.all('/api/jobs/publish-due', async (c) => {
+  const force = c.req.query('force') === 'true';
+  const limit = parseInt(c.req.query('limit') || '50', 10);
+  const results = await publishDueScheduledJobs(c.env, force, limit);
+  const publishedCount = results.filter(r => r.success).length;
+  return c.json({
+    total: results.length,
+    published: publishedCount,
+    failed: results.length - publishedCount,
+    details: results
+  });
+});
+
+async function publishDueScheduledJobs(env: Env, forceAll = false, maxCount = 50) {
+  const query = forceAll
+    ? `SELECT r.*, c.youtube_refresh_token 
+       FROM render_jobs r
+       JOIN channels c ON r.channel_id = c.id
+       WHERE r.status = 'SCHEDULED' 
+         AND r.youtube_video_id IS NOT NULL
+       ORDER BY r.scheduled_slot ASC LIMIT ?`
+    : `SELECT r.*, c.youtube_refresh_token 
+       FROM render_jobs r
+       JOIN channels c ON r.channel_id = c.id
+       WHERE r.status = 'SCHEDULED' 
+         AND r.is_reviewed = 1
+         AND r.scheduled_slot IS NOT NULL
+         AND r.scheduled_slot <= datetime('now')
+         AND r.youtube_video_id IS NOT NULL
+       ORDER BY r.scheduled_slot ASC LIMIT ?`;
+
+  const dueJobs = await env.DB.prepare(query).bind(maxCount).all();
+  const jobsList = dueJobs.results || [];
+  const results: any[] = [];
+  const tokenCache = new Map<string, string>();
+
+  for (const job of jobsList) {
+    if (!job.youtube_video_id || !job.youtube_refresh_token) {
+      results.push({ id: job.id, file_name: job.file_name, success: false, error: 'Missing video ID or refresh token' });
+      continue;
+    }
+
+    try {
+      let accessToken = tokenCache.get(job.channel_id as string);
+      if (!accessToken) {
+        accessToken = (await getGoogleAccessToken(env, job.youtube_refresh_token as string)) || undefined;
+        if (accessToken) {
+          tokenCache.set(job.channel_id as string, accessToken);
+        }
+      }
+
+      if (!accessToken) {
+        results.push({ id: job.id, file_name: job.file_name, success: false, error: 'Failed to obtain access token' });
+        continue;
+      }
+
+      const rawTags = job.ai_tags ? (typeof job.ai_tags === 'string' ? job.ai_tags.split(',') : (Array.isArray(job.ai_tags) ? job.ai_tags : [])) : [];
+      const cleanTags = rawTags.map((t: any) => String(t).trim()).filter(Boolean);
+
+      const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          id: job.youtube_video_id,
+          snippet: {
+            title: String(job.ai_title || "Shorts Video").slice(0, 100),
+            description: job.ai_description || "",
+            tags: cleanTags,
+            categoryId: "22",
+            defaultLanguage: "en",
+            defaultAudioLanguage: "en"
+          },
+          status: {
+            privacyStatus: 'public',
+            selfDeclaredMadeForKids: false
+          }
+        })
+      });
+
+      if (ytRes.ok) {
+        await env.DB.prepare(
+          `UPDATE render_jobs SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP WHERE id = ?`
+        ).bind(job.id).run();
+        console.log(`Cron successfully published scheduled job ${job.id} (${job.file_name})`);
+        results.push({ id: job.id, file_name: job.file_name, youtube_video_id: job.youtube_video_id, success: true });
+      } else {
+        const errText = await ytRes.text();
+        console.error(`Error publishing scheduled job ${job.id}:`, errText);
+        results.push({ id: job.id, file_name: job.file_name, success: false, error: errText });
+      }
+    } catch (jobErr: any) {
+      console.error(`Error publishing scheduled job ${job.id}:`, jobErr);
+      results.push({ id: job.id, file_name: job.file_name, success: false, error: jobErr?.message || String(jobErr) });
+    }
+
+    // Small delay to prevent YouTube rate-limit spikes
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  return results;
+}
+
 export default {
   fetch: app.fetch,
   async scheduled(event: any, env: any, ctx: any) {
     console.log("Running scheduled publishing cron...");
     try {
-      // Find jobs whose scheduled_slot has passed and are still SCHEDULED
-      const dueJobs = await env.DB.prepare(
-        `SELECT r.*, c.youtube_refresh_token 
-         FROM render_jobs r
-         JOIN channels c ON r.channel_id = c.id
-         WHERE r.status = 'SCHEDULED' 
-           AND r.is_reviewed = 1
-           AND r.scheduled_slot IS NOT NULL
-           AND r.scheduled_slot <= datetime('now')
-           AND r.youtube_video_id IS NOT NULL`
-      ).all();
+      // 1. Publish due scheduled videos
+      await publishDueScheduledJobs(env, false, 50);
 
-      for (const job of (dueJobs.results || [])) {
-        if (!job.youtube_video_id || !job.youtube_refresh_token) continue;
-        try {
-          const accessToken = await getGoogleAccessToken(env, job.youtube_refresh_token);
-          if (!accessToken) continue;
-
-          const rawTags = job.ai_tags ? (typeof job.ai_tags === 'string' ? job.ai_tags.split(',') : (Array.isArray(job.ai_tags) ? job.ai_tags : [])) : [];
-          const cleanTags = rawTags.map((t: any) => String(t).trim()).filter(Boolean);
-
-          const ytRes = await fetch('https://youtube.googleapis.com/youtube/v3/videos?part=snippet,status', {
-            method: 'PUT',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              id: job.youtube_video_id,
-              snippet: {
-                title: String(job.ai_title || "Shorts Video").slice(0, 100),
-                description: job.ai_description || "",
-                tags: cleanTags,
-                categoryId: "22",
-                defaultLanguage: "en",
-                defaultAudioLanguage: "en"
-              },
-              status: {
-                privacyStatus: 'public',
-                selfDeclaredMadeForKids: false
-              }
-            })
-          });
-
-          if (ytRes.ok) {
-            await env.DB.prepare(
-              `UPDATE render_jobs SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP WHERE id = ?`
-            ).bind(job.id).run();
-            console.log(`Cron successfully published scheduled job ${job.id}`);
-          }
-        } catch (jobErr) {
-          console.error(`Error publishing scheduled job ${job.id}:`, jobErr);
-        }
-      }
       // 2. Fetch Analytics for published jobs
       const publishedJobs = await env.DB.prepare(
         `SELECT r.*, c.youtube_refresh_token 
